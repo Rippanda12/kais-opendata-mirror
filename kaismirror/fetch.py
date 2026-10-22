@@ -3,11 +3,13 @@
 Uses only the public GET link the Отворени данни page itself offers. Low concurrency, retries
 with backoff on transient errors, 404 = the settlement has no such file (skipped). A 403 means
 the site's firewall refused us (it rate-limits: ~25 requests at 2/s, and ~30 at one per 2.5 s, were refused; one per 5 s ran 200+): we stop the
-whole run instead of trying to get around it. Files already on disk are kept, so a later run
+whole run instead of trying to get around it, unless the reply carries Retry-After: then we
+wait exactly that long. Every 403/429 reply is saved as blocked-<time>.txt for inspection. Files already on disk are kept, so a later run
 resumes where this one stopped.
 """
 from __future__ import annotations
 
+import email.utils
 import json
 import random
 import time
@@ -15,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from dataclasses import asdict
 from pathlib import Path
 from threading import Event, Lock
@@ -31,6 +34,35 @@ class Forbidden(RuntimeError):
 
 def url_for(s: Settlement, filename: str) -> str:
     return BASE + urllib.parse.quote(f"{s.folder}/{filename}")
+
+
+MAX_RETRY_AFTER = 1800  # seconds; a longer requested pause stops the run instead
+
+
+def _retry_after(value: str | None) -> float | None:
+    """Retry-After is either seconds or an HTTP date."""
+    if not value:
+        return None
+    if value.strip().isdigit():
+        return float(value)
+    try:
+        when = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
+
+
+def _report_block(dest: Path, e: urllib.error.HTTPError, wait: float | None) -> None:
+    """Keep what the firewall said (status, headers, start of the page) next to the manifest."""
+    try:
+        body = e.read(4000).decode("utf-8", errors="replace")
+    except Exception:
+        body = ""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    report = dest.parent.parent / f"blocked-{stamp}.txt"
+    headers = "".join(f"{k}: {v}\n" for k, v in e.headers.items())
+    report.write_text(f"HTTP {e.code} for {e.url}\nRetry-After parsed: {wait}\n\n{headers}\n{body}")
+    print(f"HTTP {e.code}; Retry-After={e.headers.get('Retry-After')!r}; details in {report}", flush=True)
 
 
 def _get(url: str, dest: Path, retries: int, stop: Event) -> dict:
@@ -55,7 +87,12 @@ def _get(url: str, dest: Path, retries: int, stop: Event) -> dict:
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return {"status": "missing"}
-            if e.code == 403:
+            if e.code in (403, 429):
+                wait = _retry_after(e.headers.get("Retry-After"))
+                _report_block(dest, e, wait)
+                if wait is not None and wait <= MAX_RETRY_AFTER and attempt < retries:
+                    time.sleep(wait + 1)  # the server said when to come back
+                    continue
                 stop.set()
                 raise Forbidden(url) from e
             err = f"HTTP {e.code}"
