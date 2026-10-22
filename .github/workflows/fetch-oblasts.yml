@@ -106,4 +106,6 @@ jobs:
             gh release create staging --draft --title "staging (not public)" \
               --notes "Oblasts fetched by the fetch-oblasts workflow. Draft: visible to collaborators only."
           fi
-          gh release upload staging data/out/*-"$OBL".parquet data/out/*-"$OBL".pmtiles "data/out/manifest-$OBL.json" --clobber
+          # the raw zips too (as one tar per oblast), so everything can be rebuilt without asking KAIS again
+          tar -cf "data/out/raw-$OBL.tar" -C data/raw "$OBL"
+          gh release upload staging data/out/*-"$OBL".parquet data/out/*-"$OBL".pmtiles "data/out/manifest-$OBL.json" "data/out/raw-$OBL.tar" --clobber
