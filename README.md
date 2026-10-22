@@ -1,5 +1,7 @@
 # kais-opendata-mirror
 
+**English** · [Български](README.bg.md)
+
 An unofficial mirror of the open data from the Bulgarian cadastre (Агенция по геодезия, картография и
 кадастър, **АГКК**, portal **КАИС**). It covers buildings (сгради) and independent units
 (самостоятелни обекти: apartments, shops, garages, cellars), with their areas, **ideal parts of the
