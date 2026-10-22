@@ -42,8 +42,9 @@ def build(out: Path, site: Path) -> dict:
         for kind in ("units", "buildings", "search"):
             shutil.copy(out / f"{kind}-{code}.parquet", data / f"{kind}-{code}.parquet")
         near = out / f"neighbours-{code}.parquet"
-        if near.exists():
-            shutil.copy(near, data / near.name)
+        for extra in (near, out / f"parcels-{code}.parquet"):
+            if extra.exists():
+                shutil.copy(extra, data / extra.name)
         d, n = duckdb.sql(
             f"SELECT max(source_date)::VARCHAR, count(*) FROM read_parquet('{out / f'units-{code}.parquet'}')"
         ).fetchall()[0]

@@ -108,6 +108,13 @@ body.expanded.collapsed #sb-open { display:block; }
 .item .t b { font-size:13px; }
 .item .acts { display:flex; gap:4px; }
 .item .acts button { width:24px; height:24px; padding:0; border-radius:50%; border:1px solid #c9c9c4; background:#fff; color:#333; font-size:13px; line-height:22px; }
+@media print {
+  body { background:#fff; } main { max-width:none; padding:0; }
+  h1, p.lead, footer, #panel, #resizer, #tools, #tool-hint, #layers, #sb-open, .maplibregl-ctrl-top-right { display:none !important; }
+  #app, body.expanded #app { position:static; display:block; }
+  #stage, body.expanded #stage { height:180mm !important; border:0; }
+  .win { box-shadow:none; border:1px solid #999; }
+}
 @media (max-width:640px) {
   form { grid-template-columns: 1fr; } #stage { height:340px; }
   body.expanded #app { grid-template-columns: 1fr; grid-template-rows: 1fr 45vh; }
@@ -151,6 +158,10 @@ body.expanded.collapsed #sb-open { display:block; }
         <button type="button" data-tool="info" aria-pressed="true" title="Клик върху сграда или имот показва информация">ℹ Информация</button>
         <button type="button" data-tool="select" aria-pressed="false" title="Влачете правоъгълник, за да изберете сгради (с Alt — имоти)">▭ Избор</button>
         <button type="button" data-tool="measure" aria-pressed="false" title="Кликнете точки; двоен клик или Enter затваря">📐 Площ</button>
+        <button type="button" data-tool="distance" aria-pressed="false" title="Кликнете точки; двоен клик или Enter приключва">📏 Разстояние</button>
+        <button type="button" data-cmd="locate" title="Моето местоположение">⌖</button>
+        <button type="button" data-cmd="coords" title="Позициониране по координати (WGS84 или БГС2005)">⌗</button>
+        <button type="button" data-cmd="print" title="Печат на текущия изглед">🖨</button>
       </div>
       <details id="layers"><summary>☰ Слоеве</summary><div class="box">
         <b>Подложка</b>
@@ -230,7 +241,8 @@ if (meta.parcels) {
   sources.p = { type: "vector", url: `pmtiles://${dataUrl("parcels.pmtiles")}` };
   layers.push(
     { id: "p-fill", type: "fill", source: "p", "source-layer": "parcels",
-      paint: { "fill-color": ["match", ["get", "pt"], "Урбанизирана", "#f3e3df", "Земеделска", "#f4efd8", "Горска", "#e2eedd", "#f6f5f1"], "fill-opacity": 0.75 } },
+      // purpose codes: 1 urban, 2 transport, 3 agricultural, 4 forest, 5 water, 6 protected, 7 disturbed
+      paint: { "fill-color": ["match", ["get", "p"], "1", "#f3e3df", "2", "#ecebe8", "3", "#f4efd8", "4", "#e2eedd", "5", "#dfeaf3", "6", "#e6efdc", "#f6f5f1"], "fill-opacity": 0.75 } },
     { id: "p-sel", type: "fill", source: "p", "source-layer": "parcels", filter: nothing, paint: { "fill-color": "#e0533c", "fill-opacity": 0.22 } },
     { id: "p-line", type: "line", source: "p", "source-layer": "parcels",
       paint: { "line-color": "#9b2c22", "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.3, 17, 1, 19, 1.4] } },
@@ -268,6 +280,7 @@ layers.push(
 const map = new maplibregl.Map({
   container: "map", center, zoom: meta.oblasts.length === 1 ? 11 : 7, maxZoom: 20,
   boxZoom: false,  // Shift+click adds to the list instead
+  preserveDrawingBuffer: true,  // lets the browser print the map canvas
   style: { version: 8, glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf", sources, layers },
 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
@@ -332,20 +345,53 @@ map.on("load", applyLayers);
 
 // ---------- Tools.
 let tool = "info";
+const MEASURING = new Set(["measure", "distance"]);
 const HINTS = {
   info: "",
   select: "Влачете правоъгълник — сградите в него отиват в списъка (с Alt — имотите). Клик добавя или маха един обект.",
   measure: "Кликвайте точки. Двоен клик или Enter затваря многоъгълника; Backspace маха последната точка; Esc изчиства.",
+  distance: "Кликвайте точки по линията. Двоен клик или Enter приключва; Backspace маха последната точка; Esc изчиства.",
 };
 function setTool(t) {
   tool = t;
   for (const b of document.querySelectorAll("#tools button")) b.setAttribute("aria-pressed", String(b.dataset.tool === t));
   $("tool-hint").textContent = HINTS[t]; $("tool-hint").classList.toggle("on", !!HINTS[t]);
   map.getCanvas().style.cursor = t === "info" ? "" : "crosshair";
-  if (t === "measure") map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
-  if (t !== "measure") clearMeasure();
+  if (MEASURING.has(t)) map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
+  clearMeasure();
 }
-$("tools").addEventListener("click", (e) => { const b = e.target.closest("button[data-tool]"); if (b) setTool(b.dataset.tool); });
+$("tools").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (b?.dataset.tool) setTool(b.dataset.tool);
+  if (b?.dataset.cmd) COMMANDS[b.dataset.cmd]();
+});
+// BGS2005 (EPSG:7801), the cadastre's own coordinates, for „Позициониране по координати“.
+const BGS2005 = "+proj=lcc +lat_0=42.6678756833333 +lon_0=25.5 +lat_1=42 +lat_2=43.3333333333333 +x_0=500000 +y_0=4725824.3591 +ellps=GRS80 +units=m +no_defs";
+const COMMANDS = {
+  locate() {
+    if (!navigator.geolocation) return status("Браузърът не дава местоположение.");
+    navigator.geolocation.getCurrentPosition(
+      (p) => map.flyTo({ center: [p.coords.longitude, p.coords.latitude], zoom: 17 }),
+      () => status("Местоположението не е разрешено."), { enableHighAccuracy: true, timeout: 10000 });
+  },
+  async coords() {
+    const text = prompt("Координати: географски (42.5048, 27.4626) или БГС2005 в метри (x=4 742 100, y=405 300):");
+    if (!text) return;
+    const nums = (text.replace(/(\d)\s+(?=\d{3}\b)/g, "$1").match(/-?\d+(?:[.,]\d+)?/g) || []).map((n) => Number(n.replace(",", ".")));
+    if (nums.length < 2) return status("Нужни са две числа.");
+    let [a, b] = nums;
+    if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return map.flyTo({ center: [b, a], zoom: 17 });
+    if (!window.proj4) await new Promise((ok, no) => { const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.12.1/proj4.js"; s.onload = ok; s.onerror = no; document.head.append(s); });
+    // In the cadastre x is the northing (~4.7 million) and y the easting; accept either order.
+    const [east, north] = a > b ? [b, a] : [a, b];
+    const [lon, lat] = proj4(BGS2005, "WGS84", [east, north]);
+    if (!(lat > 41 && lat < 44.5 && lon > 22 && lon < 29)) return status("Координатите не са в България.");
+    new maplibregl.Marker({ color: "#1f6fd1" }).setLngLat([lon, lat]).addTo(map);
+    map.flyTo({ center: [lon, lat], zoom: 18 });
+  },
+  print() { setTimeout(() => window.print(), 50); },
+};
 
 for (const id of ["b-fill", "p-fill"]) {
   map.on("mouseenter", id, () => { if (tool === "info") map.getCanvas().style.cursor = "pointer"; });
@@ -355,13 +401,12 @@ for (const id of ["b-fill", "p-fill"]) {
 function featureAt(point) {
   const hit = map.queryRenderedFeatures(point, { layers: ["b-fill", "b-3d", "p-fill"].filter((l) => map.getLayer(l)) });
   const f = hit.find((h) => h.layer.id !== "p-fill") ?? hit[0];
-  if (f?.layer.id === "p-fill") parcelInfo.set(f.properties.c, f.properties);
   return f;
 }
 let afterBox = false;  // the click the browser fires when a box drag ends must not pick the object under the mouse
 map.on("click", (e) => {
   if (afterBox) { afterBox = false; return; }
-  if (tool === "measure") return addMeasurePoint(e.lngLat);
+  if (MEASURING.has(tool)) return addMeasurePoint(e.lngLat);
   const f = featureAt(e.point);
   if (!f) return;
   const add = tool === "select" || e.originalEvent.ctrlKey || e.originalEvent.metaKey || e.originalEvent.shiftKey;
@@ -370,7 +415,7 @@ map.on("click", (e) => {
 });
 // On a Mac, Ctrl+click arrives as a right click: treat it as "add" too.
 map.on("contextmenu", (e) => {
-  if (!e.originalEvent.ctrlKey || tool === "measure") return;
+  if (!e.originalEvent.ctrlKey || MEASURING.has(tool)) return;
   e.preventDefault();
   const f = featureAt(e.point);
   if (f) toggleList(f.properties.c).catch(fail);
@@ -398,7 +443,7 @@ canvas.addEventListener("pointerdown", (e) => {
     const layer = ev.altKey ? "p-fill" : "b-fill";
     if (!map.getLayer(layer)) return;
     const found = map.queryRenderedFeatures([start, end], { layers: [layer] });
-    const ids = [...new Set(found.map((f) => { if (layer === "p-fill") parcelInfo.set(f.properties.c, f.properties); return f.properties.c; }))];
+    const ids = [...new Set(found.map((f) => f.properties.c))];
     addAll(ids).catch(fail);
   };
   document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
@@ -423,15 +468,18 @@ function ringLength(pts, closed) {
 }
 function drawMeasure() {
   const feats = mpts.map((p) => ({ type: "Feature", geometry: { type: "Point", coordinates: p } }));
-  if (mpts.length >= 2) feats.push({ type: "Feature", geometry: mclosed || mpts.length >= 3
+  const area_mode = tool === "measure";
+  if (mpts.length >= 2) feats.push({ type: "Feature", geometry: area_mode && (mclosed || mpts.length >= 3)
     ? { type: "Polygon", coordinates: [[...mpts, mpts[0]]] } : { type: "LineString", coordinates: mpts } });
   map.getSource("measure").setData({ type: "FeatureCollection", features: feats });
   const out = $("measure-out");
   if (mpts.length < 2) { out.classList.remove("on"); return; }
-  const len = ringLength(mpts, mpts.length >= 3);
-  const area = mpts.length >= 3 ? ringArea(mpts) : 0;
-  out.innerHTML = (area ? `Площ <b>${fmt(area, area < 100 ? 1 : 0)} м²</b> · ${fmt(area / 1000, 3)} дка · ` : "") +
-    `${mpts.length >= 3 ? "Периметър" : "Дължина"} ${fmt(len, 1)} м${mclosed ? "" : " · двоен клик затваря"}`;
+  const len = ringLength(mpts, area_mode && mpts.length >= 3);
+  const area = area_mode && mpts.length >= 3 ? ringArea(mpts) : 0;
+  out.innerHTML = area_mode
+    ? (area ? `Площ <b>${fmt(area, area < 100 ? 1 : 0)} м²</b> · ${fmt(area / 1000, 3)} дка · ` : "") +
+      `${mpts.length >= 3 ? "Периметър" : "Дължина"} ${fmt(len, 1)} м${mclosed ? "" : " · двоен клик затваря"}`
+    : `Разстояние <b>${len >= 1000 ? fmt(len / 1000, 3) + " км" : fmt(len, 1) + " м"}</b>${mclosed ? "" : " · двоен клик приключва"}`;
   out.classList.add("on");
 }
 function addMeasurePoint(ll) {
@@ -440,18 +488,18 @@ function addMeasurePoint(ll) {
 }
 function clearMeasure() { mpts = []; mclosed = false; if (map.getSource("measure")) drawMeasure(); }
 map.on("dblclick", (e) => {
-  if (tool !== "measure") return;
+  if (!MEASURING.has(tool)) return;
   e.preventDefault();
   // the double click already added two points at the same spot; drop the duplicate and close
   if (mpts.length > 1) mpts.pop();
-  if (mpts.length >= 3) { mclosed = true; drawMeasure(); }
+  if (mpts.length >= (tool === "distance" ? 2 : 3)) { mclosed = true; drawMeasure(); }
 });
 document.addEventListener("keydown", (e) => {
   if (e.target.closest("input, select, textarea")) return;
-  if (tool === "measure" && e.key === "Enter" && mpts.length >= 3) { mclosed = true; drawMeasure(); return; }
-  if (tool === "measure" && e.key === "Backspace" && mpts.length && !mclosed) { mpts.pop(); drawMeasure(); return; }
+  if (MEASURING.has(tool) && e.key === "Enter" && mpts.length >= (tool === "distance" ? 2 : 3)) { mclosed = true; drawMeasure(); return; }
+  if (MEASURING.has(tool) && e.key === "Backspace" && mpts.length && !mclosed) { mpts.pop(); drawMeasure(); return; }
   if (e.key === "Escape") {
-    if (tool === "measure" && mpts.length) { clearMeasure(); return; }
+    if (MEASURING.has(tool) && mpts.length) { clearMeasure(); return; }
     if (tool !== "info") { setTool("info"); return; }
     if (document.body.classList.contains("expanded")) setExpanded(false);
   }
@@ -606,7 +654,9 @@ async function openInfo(cad, { at = null, fly = true } = {}) {
 }
 
 async function parcelWindow(cad, o, at) {
-  const p = parcelInfo.get(cad);
+  const [r] = await run(`SELECT * FROM read_parquet(${file("parcels", o)}) WHERE cadnum = ?`, [cad]).catch(() => []);
+  const p = r ? { pr: r.proptype, pt: r.purptype, ut: r.usetype, a: r.area, pl: r.place || r.quarname, v: r.validate } : null;
+  if (p) parcelInfo.set(cad, p);
   const rows = await run(
     `SELECT s.building, s.address, s.units, b.functype, b.flrcount, b.area
      FROM read_parquet(${file("search", o)}) s LEFT JOIN read_parquet(${file("buildings", o)}) b ON b.cadnum = s.building
@@ -813,10 +863,15 @@ async function exportRows() {
        FROM read_parquet(${file("buildings", o)}) b LEFT JOIN read_parquet(${file("units", o)}) u ON u.building = b.cadnum
        WHERE b.cadnum IN ${await idTable(buildings)} OR ${parcelExpr} IN ${await idTable(parcels)} OR u.cadnum IN ${await idTable(units)}
        ORDER BY b.cadnum, u.cadapp`));
-    for (const p of parcels) {
-      if (!out.some((r) => r["Имот"] === p)) {
-        const i = parcelInfo.get(p);
-        out.push({ "Имот": p, "Вид": i ? `${i.pt}${i.ut ? ", " + i.ut : ""}` : "имот без сгради", "Адрес": i?.pl ?? "" });
+    const bare = parcels.filter((p) => !out.some((r) => r["Имот"] === p));
+    if (bare.length) {  // parcels without buildings: one row each, from the parcel attributes
+      const info = await run(`SELECT cadnum, purptype, usetype, area, coalesce(place, quarname, immaddr) AS place
+        FROM read_parquet(${file("parcels", o)}) WHERE cadnum IN ${await idTable(bare)}`).catch(() => []);
+      const by = new Map(info.map((i) => [i.cadnum, i]));
+      for (const p of bare) {
+        const i = by.get(p);
+        out.push({ "Имот": p, "Вид": i ? `${i.purptype ?? ""}${i.usetype ? ", " + i.usetype : ""}` : "имот без сгради",
+                   "Площ на имота, м²": i?.area ?? null, "Адрес": i?.place ?? "" });
       }
     }
   }
@@ -862,19 +917,33 @@ async function exportXlsx() {
 
 // ---------- Address search: in one oblast, or in all oblasts in the mirror.
 async function showAddress(text) {
-  const words = text.toLowerCase().split(/[\s,]+/).filter(Boolean);
+  const words = searchWords(text);
   if (!words.length) return;
   const scope = $("area").value ? [$("area").value] : meta.oblasts.map((o) => o.code);
   status(scope.length > 1 ? "Търсене в цялата страна…" : "Търсене…");
+  // q without punctuation, padded with spaces: a word matches the start of a word, a number matches whole.
+  const qn = `' ' || regexp_replace(q, '[^0-9a-zа-яѝ]+', ' ', 'g') || ' '`;
   const rows = await run(
     `SELECT building, address, blocks, entrances, units, units_with_adjpart
      FROM read_parquet(${files("search", scope)})
-     WHERE ${words.map(() => "q LIKE '%' || ? || '%'").join(" AND ")} ORDER BY address LIMIT 200`, words);
+     WHERE ${words.map((w) => (/^\d+$/.test(w) ? `contains(${qn}, ' ' || ? || ' ')` : `contains(${qn}, ' ' || ?)`)).join(" AND ")}
+     ORDER BY address LIMIT 200`, words);
   status(rows.length ? `${rows.length}${rows.length === 200 ? "+" : ""} сгради. Клик отваря; Ctrl/⌘/Shift + клик добавя към списъка.` : "Няма съвпадения.");
   $("out").innerHTML =
     `<thead><tr><th>Сграда</th><th>Адрес</th><th>Бл.</th><th>Вх.</th><th>Обекти</th><th>С ид. ч.</th></tr></thead><tbody>` +
     rows.map((r) => `<tr class="click" data-cad="${esc(r.building)}"><td>${esc(r.building)}</td><td>${esc(r.address)}</td><td>${esc(r.blocks)}</td><td>${esc(r.entrances)}</td><td class="n">${r.units}</td><td class="n">${r.units_with_adjpart}</td></tr>`).join("") + `</tbody>`;
   paint();
+}
+
+// Search words: lower case, no punctuation, Latin transliterated („chayka bl 10“ = „чайка бл. 10“), noise words dropped.
+const LATIN = [["sht", "щ"], ["sh", "ш"], ["ch", "ч"], ["zh", "ж"], ["ts", "ц"], ["yu", "ю"], ["ya", "я"],
+  ["a", "а"], ["b", "б"], ["v", "в"], ["g", "г"], ["d", "д"], ["e", "е"], ["z", "з"], ["i", "и"], ["y", "й"], ["k", "к"], ["l", "л"],
+  ["m", "м"], ["n", "н"], ["o", "о"], ["p", "п"], ["r", "р"], ["s", "с"], ["t", "т"], ["u", "у"], ["f", "ф"], ["h", "х"], ["c", "ц"], ["w", "в"], ["x", "кс"], ["q", "к"]];
+const NOISE = new Set(["гр", "град", "ул", "улица", "жк", "ж", "к", "кв", "№", "no"]);
+function searchWords(text) {
+  let s = text.toLowerCase().replace(/ж\.\s*к\./g, " ");
+  for (const [l, c] of LATIN) s = s.replaceAll(l, c);
+  return s.split(/[^0-9а-яѝ]+/).filter((w) => w && !NOISE.has(w));
 }
 
 $("out").addEventListener("click", (e) => {

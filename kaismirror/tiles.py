@@ -72,23 +72,15 @@ def _building_props(rec: dict) -> dict:
 
 
 def _parcel_props(rec: dict) -> dict:
+    """Only what the map draws; the rest of a parcel's attributes go to parcels-<OBL>.parquet."""
     cad = rec.get("cadnum") or ""
-    return {
-        "c": cad,
-        "n": ".".join(cad.split(".")[1:]),  # район.имот, as KAIS labels parcels
-        "p": rec.get("purpcode") or "",
-        "pt": rec.get("purptype") or "",
-        "ut": rec.get("usetype") or "",
-        "pl": rec.get("place") or rec.get("quarname") or "",
-        "a": round(rec.get("AREA") or 0),
-        "pr": rec.get("proptype") or "",
-        "v": rec.get("validate") or "",  # repeated per settlement; vector tiles store each value once per tile
-    }
+    return {"c": cad, "n": ".".join(cad.split(".")[1:]), "p": rec.get("purpcode") or ""}
 
 
 KINDS = {
-    "buildings": (_building_props, 12),  # properties, minimum zoom
-    "parcels": (_parcel_props, 13),
+    "buildings": (_building_props, 12, 16),  # properties, minimum zoom, maximum zoom
+    # Parcels stop at z15 (~1 m precision, the map over-zooms beyond): z16 doubles the national size.
+    "parcels": (_parcel_props, 14, 15),
 }
 
 
@@ -109,7 +101,7 @@ def build_tiles(raw: Path, out: Path, oblast: str, kind: str = "buildings", log=
     if not shutil.which("tippecanoe"):
         raise SystemExit("tippecanoe not found (brew install tippecanoe / build felt/tippecanoe)")
     out.mkdir(parents=True, exist_ok=True)
-    props, minzoom = KINDS[kind]
+    props, minzoom, maxzoom = KINDS[kind]
     seq = out / f".{kind}-{oblast}.geojsonl"
     n = 0
     with open(seq, "w") as f:
@@ -118,15 +110,42 @@ def build_tiles(raw: Path, out: Path, oblast: str, kind: str = "buildings", log=
                 f.write(json.dumps(feat, ensure_ascii=False, separators=(",", ":")) + "\n")
                 n += 1
     log(f"{n} {kind} outlines")
+    if kind == "parcels":
+        write_parcels(raw, out, oblast)
     if not n:
         seq.unlink()
         return None
     target = out / f"{kind}-{oblast}.pmtiles"
     subprocess.run(
         ["tippecanoe", "-o", str(target), "--force", "--quiet", "-l", kind,
-         f"-Z{minzoom}", "-z16", "--drop-smallest-as-needed", "--extend-zooms-if-still-dropping",
+         f"-Z{minzoom}", f"-z{maxzoom}", "--drop-smallest-as-needed", "--extend-zooms-if-still-dropping",
          "--attribution", "АГКК / КАИС — Отворени данни", str(seq)],
         check=True,
     )
     seq.unlink()
+    return target
+
+
+PARCEL_FIELDS = ["cadnum", "ekatte", "ekattefn", "purptype", "usetype", "proptype", "place", "quarname",
+                 "strename", "strnum", "immaddr", "oldident", "validate"]
+
+
+def write_parcels(raw: Path, out: Path, oblast: str) -> Path:
+    """Attributes of every parcel (no owners), sorted by cadnum, for the parcel window."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    cols = {k: [] for k in PARCEL_FIELDS + ["area"]}
+    for z in sorted((raw / oblast).glob("*/parcels.zip")):
+        zf = zipfile.ZipFile(z, metadata_encoding="cp866")
+        dbf = _member(zf, ".dbf")
+        if not dbf:
+            continue
+        for rec in iter_records(zf.open(dbf))[1]:
+            for k in PARCEL_FIELDS:
+                cols[k].append(rec.get(k))
+            cols["area"].append(round(rec.get("AREA") or 0, 1))
+    table = pa.table(cols).sort_by("cadnum")
+    target = out / f"parcels-{oblast}.parquet"
+    pq.write_table(table, target, compression="zstd", row_group_size=8192)
     return target
