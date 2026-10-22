@@ -17,7 +17,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
-from threading import Event
+from threading import Event, Lock
 
 from .ekatte import USER_AGENT, Settlement
 
@@ -73,7 +73,7 @@ def fetch(
     workers: int = 1,
     delay: float = 5.0,
     retries: int = 4,
-    log=print,
+    log=lambda m: print(m, flush=True),
 ) -> list[dict]:
     """Download into out/<oblast>/<ekatte>/<kind>.zip; returns a manifest (also written to out)."""
     stop = Event()
@@ -85,8 +85,21 @@ def fetch(
             known_missing |= {(m["ekatte"], m["kind"]) for m in json.loads(prev.read_text())
                               if m["status"] == "missing"}
 
+    done = []
+    lock = Lock()
+    started = time.monotonic()
+
+    def save():
+        for oblast in {s.oblast for s in settlements}:
+            rows = [m for m in done if m["settlement"]["oblast"] == oblast]
+            (out / oblast).mkdir(parents=True, exist_ok=True)
+            tmp = out / oblast / "manifest.json.tmp"
+            tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=1))
+            tmp.replace(out / oblast / "manifest.json")  # atomic: a kill never leaves half a file
+
     def one(job):
         s, kind = job
+        t0 = time.monotonic()
         dest = out / s.oblast / s.ekatte / f"{kind}.zip"
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists():
@@ -100,16 +113,21 @@ def fetch(
                 res = {"status": "forbidden"}
             time.sleep(delay)
         res |= {"ekatte": s.ekatte, "kind": kind, "settlement": asdict(s)}
-        if res["status"] != "missing":
-            log(f"{res['status']:8} {s.folder}/{FILES[kind]}")
+        with lock:
+            done.append(res)
+            n = len(done)
+            if not res.get("cached") or n % 50 == 0:
+                save()
+        size = f"{res['bytes'] / 1e6:8.2f} MB" if "bytes" in res else " " * 11
+        note = " (cached)" if res.get("cached") else ""
+        log(f"[{n}/{len(jobs)} {time.monotonic() - started:6.0f}s] {res['status']:9} {size} "
+            f"{time.monotonic() - t0:5.1f}s  {s.folder}/{FILES[kind]}{note}")
         return res
 
     with ThreadPoolExecutor(workers) as pool:
         manifest = list(pool.map(one, jobs))
-    for oblast in {s.oblast for s in settlements}:
-        rows = [m for m in manifest if m["settlement"]["oblast"] == oblast]
-        (out / oblast).mkdir(parents=True, exist_ok=True)
-        (out / oblast / "manifest.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1))
+    done[:] = manifest
+    save()
     if stop.is_set():
         raise Forbidden(next(f"{m['settlement']['oblast']} {m['ekatte']} {m['kind']}"
                              for m in manifest if m["status"] == "forbidden"))
