@@ -152,13 +152,25 @@ async function showCadnum(cad, { fly = true } = {}) {
   const rows = await run(
     `SELECT cadnum, entrance, flrnum, appnum, apptype, apparea, adjpart_sqm, adjpart_pct, adjpart, immaddr
      FROM read_parquet('${dataUrl(`units-${oblast}.parquet`)}') WHERE ${col} = ? ORDER BY cadapp`, [cad]);
-  if (!rows.length) { status("Няма самостоятелни обекти с този идентификатор в избраната област."); $("out").innerHTML = ""; return; }
   const building = cad.split(".").slice(0, 4).join(".");
-  select(building);
   if (fly) {
     const [p] = await run(`SELECT lon, lat FROM read_parquet('${dataUrl(`search-${oblast}.parquet`)}') WHERE building = ?`, [building]);
     if (p?.lon != null) map.flyTo({ center: [p.lon, p.lat], zoom: 18 });
   }
+  if (!rows.length) {
+    // Most buildings (houses, sheds) are registered whole, without independent units: show the building.
+    const [b] = await run(
+      `SELECT cadnum, functype, flrcount, area, proptype, immaddr
+       FROM read_parquet('${dataUrl(`buildings-${oblast}.parquet`)}') WHERE cadnum = ?`, [building]);
+    if (!b) { select(null); status("Няма сграда или обект с този идентификатор в избраната област."); $("out").innerHTML = ""; return; }
+    select(building);
+    status(`Сградата е вписана без самостоятелни обекти, затова няма и идеални части · ${b.immaddr ?? ""}`);
+    $("out").innerHTML =
+      `<thead><tr><th>Сграда</th><th>Предназначение</th><th>Етажи</th><th>Застроена площ, м²</th><th>Собственост</th><th>Адрес</th></tr></thead>` +
+      `<tbody><tr><td>${esc(b.cadnum)}</td><td>${esc(b.functype)}</td><td class="n">${esc(b.flrcount)}</td><td class="n">${fmt(b.area)}</td><td>${esc(b.proptype)}</td><td>${esc(b.immaddr)}</td></tr></tbody>`;
+    return;
+  }
+  select(building);
   const sum = (k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
   status(`${rows.length} обекта · ${rows[0].immaddr?.replace(/,\s*(ет|ап)\..*$/, "") ?? ""}`);
   $("out").innerHTML =
