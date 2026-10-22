@@ -2,7 +2,7 @@
 
 Uses only the public GET link the Отворени данни page itself offers. Low concurrency, retries
 with backoff on transient errors, 404 = the settlement has no such file (skipped). A 403 means
-the site's firewall refused us (it rate-limits: ~25 requests at 2/s were enough): we stop the
+the site's firewall refused us (it rate-limits: ~25 requests at 2/s, and ~30 at one per 2.5 s, were refused; one per 5 s ran 200+): we stop the
 whole run instead of trying to get around it. Files already on disk are kept, so a later run
 resumes where this one stopped.
 """
@@ -111,7 +111,8 @@ def fetch(
                 res = _get(url_for(s, FILES[kind]), dest, retries, stop)
             except Forbidden:
                 res = {"status": "forbidden"}
-            time.sleep(delay)
+            if res["status"] != "aborted":
+                time.sleep(delay)
         res |= {"ekatte": s.ekatte, "kind": kind, "settlement": asdict(s)}
         with lock:
             done.append(res)
