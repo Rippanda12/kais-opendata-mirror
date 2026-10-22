@@ -66,6 +66,12 @@ body.expanded.collapsed #sb-open { display:block; }
 #tools button { background:#fff; color:#333; border:0; border-right:1px solid #e3e3df; border-radius:0; padding:6px 10px; font-size:13px; }
 #tools button:last-child { border-right:0; }
 #tools button[aria-pressed="true"] { background:#2f6b4f; color:#fff; }
+#layers { position:absolute; right:10px; top:120px; z-index:3; background:#fff; color:#1d1d1b; border-radius:6px; box-shadow:0 1px 4px rgba(0,0,0,.25); font-size:13px; }
+#layers summary { cursor:pointer; padding:6px 10px; list-style:none; }
+#layers summary::-webkit-details-marker { display:none; }
+#layers .box { padding:4px 12px 10px; display:grid; gap:4px; min-width:170px; }
+#layers .box b { margin-top:6px; font-size:12px; color:#6b6a64; font-weight:600; }
+#layers label { display:flex; gap:6px; align-items:center; cursor:pointer; }
 #tool-hint { position:absolute; left:10px; top:46px; z-index:3; background:rgba(255,255,255,.95); color:#333; font-size:12px; padding:4px 8px; border-radius:4px; display:none; max-width:calc(100% - 20px); }
 #tool-hint.on { display:block; }
 #box { position:absolute; z-index:3; border:2px dashed #b3261e; background:rgba(224,83,60,.12); pointer-events:none; display:none; }
@@ -87,6 +93,16 @@ body.expanded.collapsed #sb-open { display:block; }
 .win .add { color:#2f6b4f; cursor:pointer; margin:6px 8px; display:inline-block; }
 .win .add.done { color:#888; cursor:default; }
 .win select { width:100%; border-color:#cfcfc9; color:#1d1d1b; margin:4px 0 6px; }
+.win.wide { width:760px; }
+.win .tools { display:flex; gap:6px; flex-wrap:wrap; margin:6px 8px; }
+.win .tools button { padding:4px 10px; font-size:13px; background:#2f6b4f; color:#fff; border-color:#2f6b4f; }
+.win .tools button.ghost { background:#fff; color:#2f6b4f; }
+.win table { font-size:12.5px; }
+.win th, .win td { padding:4px 6px; border-bottom:1px solid #e6e6e2; color:#1d1d1b; }
+.win th { color:#6b6a64; }
+.win td input[type=number] { width:76px; padding:2px 4px; font-size:12.5px; text-align:right; border:1px solid #cfcfc9; border-radius:4px; color:#1d1d1b; }
+.win tr.off td { color:#aaa; }
+.win td.warn { color:#b3261e; }
 .item { display:flex; gap:8px; align-items:flex-start; background:#ececea; border-radius:6px; padding:7px 8px; margin:6px 0; }
 .item .t { flex:1; font-size:13px; line-height:1.35; }
 .item .t b { font-size:13px; }
@@ -111,12 +127,12 @@ body.expanded.collapsed #sb-open { display:block; }
       <div id="sb-head"><b>Кадастър</b><button type="button" class="ghost" id="sb-close" title="Скрий панела">«</button></div>
       <form id="f-cad">
         <select id="area" aria-label="Област за търсене по адрес"></select>
-        <input id="cadnum" placeholder="Идентификатор: имот, сграда или обект (07079.602.802.1)" autocomplete="off">
+        <input id="cadnum" placeholder="Идентификатор: имот, сграда или обект (10135.2562.46.1)" autocomplete="off">
         <button>Покажи</button>
       </form>
       <form id="f-addr">
         <span></span>
-        <input id="addr" placeholder="Адрес: напр. изгрев бл. 35 вх. 2" autocomplete="off">
+        <input id="addr" placeholder="Адрес: напр. чайка бл. 10 вх. А" autocomplete="off">
         <button>Търси</button>
       </form>
 
@@ -136,6 +152,17 @@ body.expanded.collapsed #sb-open { display:block; }
         <button type="button" data-tool="select" aria-pressed="false" title="Влачете правоъгълник, за да изберете сгради (с Alt — имоти)">▭ Избор</button>
         <button type="button" data-tool="measure" aria-pressed="false" title="Кликнете точки; двоен клик или Enter затваря">📐 Площ</button>
       </div>
+      <details id="layers"><summary>☰ Слоеве</summary><div class="box">
+        <b>Подложка</b>
+        <label><input type="radio" name="base" value="grey" checked> Сива (като КАИС)</label>
+        <label><input type="radio" name="base" value="color"> Цветна OpenStreetMap</label>
+        <label><input type="radio" name="base" value="none"> Без подложка</label>
+        <b>Слоеве</b>
+        <label><input type="checkbox" data-layer="parcels" checked> Поземлени имоти</label>
+        <label><input type="checkbox" data-layer="buildings" checked> Сгради</label>
+        <label><input type="checkbox" data-layer="labels" checked> Номера</label>
+        <label><input type="checkbox" data-layer="3d"> 3D по етажи</label>
+      </div></details>
       <div id="tool-hint"></div>
       <div id="box"></div>
       <div id="measure-out"></div>
@@ -218,6 +245,11 @@ if (meta.map) {
       paint: { "line-color": "#1d1d1b", "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.2, 17, 1, 19, 1.6] } },
     { id: "b-sel", type: "fill", source: "b", "source-layer": "buildings", filter: nothing, paint: { "fill-color": "#e0533c", "fill-opacity": 0.55 } },
     { id: "b-sel-line", type: "line", source: "b", "source-layer": "buildings", filter: nothing, paint: { "line-color": "#b3261e", "line-width": 2.5 } },
+    { id: "b-3d", type: "fill-extrusion", source: "b", "source-layer": "buildings", minzoom: 14, layout: { visibility: "none" },
+      paint: { "fill-extrusion-color": ["case", [">", ["get", "u"], 0], "#c9c2b6", "#ddd8cf"],
+               "fill-extrusion-height": ["*", ["max", ["to-number", ["get", "f"]], 1], 3], "fill-extrusion-opacity": 0.9 } },
+    { id: "b-sel-3d", type: "fill-extrusion", source: "b", "source-layer": "buildings", minzoom: 14, filter: nothing, layout: { visibility: "none" },
+      paint: { "fill-extrusion-color": "#e0533c", "fill-extrusion-height": ["+", ["*", ["max", ["to-number", ["get", "f"]], 1], 3], 0.3], "fill-extrusion-opacity": 0.95 } },
     { id: "b-num", type: "symbol", source: "b", "source-layer": "buildings", minzoom: 17,
       layout: { "text-field": ["get", "n"], "text-font": ["Open Sans Semibold"], "text-size": 12 },
       paint: { "text-color": "#1d1d1b", "text-halo-color": "#ffffff", "text-halo-width": 1.2 } },
@@ -272,6 +304,32 @@ $("resizer").addEventListener("pointerdown", (e) => {
   r.addEventListener("pointermove", move); r.addEventListener("pointerup", up);
 });
 
+// ---------- Layers panel: base map, layer switches, 3D by floors.
+const LAYER_GROUPS = {
+  parcels: ["p-fill", "p-line", "p-num", "p-sel", "p-sel-line"],
+  buildings: ["b-fill", "b-line", "b-sel", "b-sel-line", "b-num"],
+  labels: ["b-num", "p-num"],
+};
+function applyLayers() {
+  const on = (k) => document.querySelector(`#layers [data-layer="${k}"]`).checked;
+  const vis = (id, v) => map.getLayer(id) && map.setLayoutProperty(id, "visibility", v ? "visible" : "none");
+  for (const id of LAYER_GROUPS.parcels) vis(id, on("parcels") && (!id.endsWith("num") || on("labels")));
+  for (const id of LAYER_GROUPS.buildings) vis(id, on("buildings") && !(on("3d") && id === "b-fill") && (id !== "b-num" || on("labels")));
+  vis("b-3d", on("buildings") && on("3d"));
+  vis("b-sel-3d", on("buildings") && on("3d"));
+  const base = document.querySelector('#layers [name="base"]:checked').value;
+  vis("osm", base !== "none");
+  if (map.getLayer("osm")) {
+    map.setPaintProperty("osm", "raster-saturation", base === "grey" ? -1 : 0);
+    map.setPaintProperty("osm", "raster-opacity", base === "grey" ? 0.28 : 0.85);
+  }
+}
+$("layers").addEventListener("change", (e) => {
+  applyLayers();
+  if (e.target.dataset.layer === "3d") map.easeTo({ pitch: e.target.checked ? 55 : 0, bearing: e.target.checked ? -15 : 0 });
+});
+map.on("load", applyLayers);
+
 // ---------- Tools.
 let tool = "info";
 const HINTS = {
@@ -295,8 +353,8 @@ for (const id of ["b-fill", "p-fill"]) {
 }
 // A building wins over the parcel under it.
 function featureAt(point) {
-  const hit = map.queryRenderedFeatures(point, { layers: ["b-fill", "p-fill"].filter((l) => map.getLayer(l)) });
-  const f = hit.find((h) => h.layer.id === "b-fill") ?? hit[0];
+  const hit = map.queryRenderedFeatures(point, { layers: ["b-fill", "b-3d", "p-fill"].filter((l) => map.getLayer(l)) });
+  const f = hit.find((h) => h.layer.id !== "p-fill") ?? hit[0];
   if (f?.layer.id === "p-fill") parcelInfo.set(f.properties.c, f.properties);
   return f;
 }
@@ -444,7 +502,7 @@ function paint() {
   const bs = [...new Set(ids.filter((i) => kindOf(i) !== "parcel").map(buildingOf))];
   const ps = ids.filter((i) => kindOf(i) === "parcel");
   const inList = (l) => (l.length ? ["in", ["get", "c"], ["literal", l]] : nothing);
-  if (map.getLayer("b-sel")) { map.setFilter("b-sel", inList(bs)); map.setFilter("b-sel-line", inList(bs)); }
+  if (map.getLayer("b-sel")) { map.setFilter("b-sel", inList(bs)); map.setFilter("b-sel-line", inList(bs)); map.setFilter("b-sel-3d", inList(bs)); }
   if (map.getLayer("p-sel")) { map.setFilter("p-sel", inList(ps)); map.setFilter("p-sel-line", inList(ps)); }
   for (const tr of document.querySelectorAll("#out tr[data-cad]")) tr.classList.toggle("picked", list.has(tr.dataset.cad));
   for (const a of document.querySelectorAll(".win .add[data-cad]")) {
@@ -506,6 +564,9 @@ $("stage").addEventListener("click", (e) => {
   if (b.dataset.act === "zoom") flyTo(cad).catch(fail);
   if (b.dataset.act === "info") { e.preventDefault(); openInfo(cad, { fly: b.tagName === "A" }).catch(fail); }
   if (b.dataset.act === "add" && !list.has(cad)) toggleList(cad).catch(fail);
+  if (b.dataset.act === "shares") sharesWindow(cad).catch(fail);
+  if (b.dataset.act === "shares-xlsx") exportShares(b.dataset.cad, "xlsx").catch(fail);
+  if (b.dataset.act === "shares-csv") exportShares(b.dataset.cad, "csv").catch(fail);
 });
 $("stage").addEventListener("change", (e) => {
   const s = e.target.closest("select[data-floor]");
@@ -532,7 +593,7 @@ const place = (cad, addr) => {
 
 async function openInfo(cad, { at = null, fly = true } = {}) {
   cad = cad.trim();
-  if (!validId(cad) || !kindOf(cad)) { status("Идентификаторът е като 07079.602.802 (имот), 07079.602.802.1 (сграда) или 07079.602.802.1.5 (обект)."); return; }
+  if (!validId(cad) || !kindOf(cad)) { status("Идентификаторът е като 10135.2562.46 (имот), 10135.2562.46.1 (сграда) или 10135.2562.46.1.5 (обект)."); return; }
   const o = oblastOf(cad);
   if (!o) { status("Няма данни за това населено място в огледалото (още)."); return; }
   history.replaceState(null, "", `?cadnum=${cad}`);
@@ -574,6 +635,7 @@ async function buildingWindow(cad, o, at) {
   const floors = [...new Set(units.map((u) => u.flrnum ?? ""))].sort((a, b) => Number(a) - Number(b) || String(a).localeCompare(b));
   openWindow(cad, `Информация: Сграда ${cad}`,
     `<h3>Сграда ${esc(cad)} ${place(cad, addr)}</h3>${addLink(cad)}<p>${desc}</p>${order(b?.validate)}${await neighboursHtml(cad, o)}` +
+    (units.length ? `<div class="tools"><button type="button" data-act="shares" data-cad="${esc(cad)}">Идеални части (ЗУЕС)</button></div>` : "") +
     `<h4>Имот</h4><div class="item"><div class="t"><b>ПИ ${esc(parcelOf(cad))}</b></div>${acts(parcelOf(cad))}</div>` +
     (units.length ? `<h4>Етаж</h4><select data-floor><option value="">всички (${units.length})</option>` +
       floors.map((f) => `<option value="${esc(f)}">${esc(f || "—")}</option>`).join("") + `</select><h4>СОС</h4>` +
@@ -596,6 +658,85 @@ async function unitWindow(cad, o, at) {
     `<h3>СОС ${esc(cad)} ${place(cad, u.immaddr)}</h3>${addLink(cad)}<p>${desc}</p>${parsed}${order(u.validate ?? u.bvalidate)}` +
     `<h4>Сграда</h4><div class="item"><div class="t"><b>Сграда ${esc(u.building)}</b></div>${acts(u.building)}</div>`, at);
   paint();
+}
+
+// ---------- Ideal parts by чл. 17, ал. 4 ЗУЕС: area of the unit / total area of the units × 100 %.
+// The register's own percentage (when written) is shown next to it; areas can be corrected in place.
+const shares = new Map();  // building -> { units, area: Map(cadnum -> m²), on: Set(cadnum) }
+
+async function sharesWindow(cad) {
+  const o = oblastOf(cad);
+  const units = await run(
+    `SELECT cadnum, entrance, flrnum, appnum, apptype, apparea, adjpart_pct, adjpart_sqm, adjpart
+     FROM read_parquet(${file("units", o)}) WHERE building = ? ORDER BY cadapp`, [cad]);
+  if (!shares.has(cad)) shares.set(cad, {
+    area: new Map(units.map((u) => [u.cadnum, u.apparea ?? null])),
+    on: new Set(units.map((u) => u.cadnum)),
+  });
+  shares.get(cad).units = units;
+  const w = openWindow(`shares:${cad}`, `Идеални части: Сграда ${cad}`, "", null);
+  w.classList.add("wide");
+  renderShares(cad, w);
+  if (!w.dataset.wired) {
+    w.dataset.wired = "1";
+    w.querySelector(".body").addEventListener("input", (e) => {
+      const s = shares.get(cad), el = e.target;
+      if (el.matches("input[type=number]")) s.area.set(el.dataset.u, el.value === "" ? null : Number(el.value));
+      if (el.matches("input[type=checkbox]")) el.checked ? s.on.add(el.dataset.u) : s.on.delete(el.dataset.u);
+      renderShares(cad, w, el);
+    });
+  }
+}
+
+function computeShares(cad) {
+  const s = shares.get(cad);
+  const total = s.units.reduce((a, u) => a + (s.on.has(u.cadnum) ? s.area.get(u.cadnum) || 0 : 0), 0);
+  const rows = s.units.map((u) => {
+    const area = s.area.get(u.cadnum), on = s.on.has(u.cadnum);
+    const calc = on && total && area ? (area / total) * 100 : null;
+    return { u, area, on, calc, reg: u.adjpart_pct, diff: calc != null && u.adjpart_pct != null ? calc - u.adjpart_pct : null };
+  });
+  const regSum = rows.reduce((a, r) => a + (r.on && r.reg != null ? r.reg : 0), 0);
+  return { rows, total, regSum, missing: rows.filter((r) => r.on && !r.area).length };
+}
+
+function renderShares(cad, w, keepFocus) {
+  const { rows, total, regSum, missing } = computeShares(cad);
+  const focusId = keepFocus?.dataset.u, focusType = keepFocus?.type;
+  w.querySelector(".body").innerHTML =
+    `<p>По <b>чл. 17, ал. 4 ЗУЕС</b>: идеалната част на обект = площта му ÷ сбора от площите на всички включени обекти × 100 %. ` +
+    `Ако идеалните части са вписани в документите, важат те — показани са в колона „Вписани“. Площите може да се поправят; махнете отметката, за да изключите обект.</p>` +
+    `<div class="tools"><button type="button" data-act="shares-xlsx" data-cad="${esc(cad)}">Excel</button><button type="button" class="ghost" data-act="shares-csv" data-cad="${esc(cad)}">CSV</button></div>` +
+    (missing ? `<p style="color:#b3261e">${missing} включени обекта нямат площ — въведете я, иначе не участват в сбора.</p>` : "") +
+    `<table><thead><tr><th></th><th>Обект</th><th>Вх.</th><th>Ет.</th><th>№</th><th>Вид</th><th>Площ, м²</th><th>Изчислени, %</th><th>Вписани, %</th><th>Разлика</th></tr></thead><tbody>` +
+    rows.map((r) => `<tr class="${r.on ? "" : "off"}"><td><input type="checkbox" data-u="${esc(r.u.cadnum)}" ${r.on ? "checked" : ""}></td>` +
+      `<td>${esc(r.u.cadnum.split(".").slice(-1)[0])}</td><td>${esc(r.u.entrance)}</td><td>${esc(r.u.flrnum)}</td><td>${esc(r.u.appnum)}</td>` +
+      `<td title="${esc(r.u.apptype)}">${esc((r.u.apptype ?? "").split(/[,-]/)[0])}</td>` +
+      `<td><input type="number" step="0.01" min="0" data-u="${esc(r.u.cadnum)}" value="${r.area ?? ""}"></td>` +
+      `<td class="n">${fmt(r.calc, 3)}</td><td class="n" title="${esc(r.u.adjpart)}">${fmt(r.reg, 3)}</td>` +
+      `<td class="n ${r.diff != null && Math.abs(r.diff) >= 0.1 ? "warn" : ""}">${r.diff == null ? "" : (r.diff > 0 ? "+" : "") + fmt(r.diff, 3)}</td></tr>`).join("") +
+    `</tbody><tfoot><tr><td></td><td colspan="5">Общо (${rows.filter((r) => r.on).length} обекта)</td><td class="n">${fmt(total)}</td>` +
+    `<td class="n">${total ? "100,000" : ""}</td><td class="n">${fmt(regSum, 3)}</td><td></td></tr></tfoot></table>`;
+  if (focusId) {  // re-rendering replaced the input being typed into: put the cursor back
+    const el = w.querySelector(`input[type=${focusType}][data-u="${CSS.escape(focusId)}"]`);
+    if (el) { el.focus(); if (focusType === "number") { const v = el.value; el.value = ""; el.value = v; } }
+  }
+}
+
+async function exportShares(cad, kind) {
+  const { rows, total } = computeShares(cad);
+  const data = rows.map((r) => ({
+    "Обект": r.u.cadnum, "Вход": r.u.entrance, "Етаж": r.u.flrnum, "№": r.u.appnum, "Вид": r.u.apptype,
+    "Включен": r.on ? "да" : "не", "Площ, м²": r.area, "Ид. ч. по ЗУЕС, %": r.calc == null ? null : Number(r.calc.toFixed(4)),
+    "Вписани ид. ч., %": r.reg, "Вписани ид. ч., м²": r.u.adjpart_sqm, "Текст в регистъра": r.u.adjpart,
+  }));
+  data.push({ "Обект": "Общо", "Площ, м²": Number(total.toFixed(2)), "Ид. ч. по ЗУЕС, %": total ? 100 : null });
+  const name = `ideal-parts-${cad}-${stamp()}`;
+  if (kind === "csv") return download(csvBlob(data), `${name}.csv`);
+  await loadXlsx();
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "Идеални части");
+  XLSX.writeFile(wb, `${name}.xlsx`);
 }
 
 // ---------- "Списък с обекти": parcels, buildings and units, exportable.
@@ -688,23 +829,29 @@ function download(blob, name) {
   a.href = URL.createObjectURL(blob); a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-async function exportCsv() {
-  status("Подготовка…");
-  const rows = await exportRows();
-  if (!rows.length) { status("Списъкът с обекти е празен."); return; }
+function csvBlob(rows) {
   const cols = [...new Set(rows.flatMap(Object.keys))];
   const cell = (v) => (v == null ? "" : /[",\n;]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
   const csv = [cols.map(cell).join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(","))].join("\r\n");
-  download(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }), `kais-${stamp()}.csv`);
-  status(`Изнесени ${rows.length} реда (CSV).`);
+  return new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });  // BOM: Excel reads UTF-8
 }
-async function exportXlsx() {
-  status("Подготовка…");
+async function loadXlsx() {
   if (!window.XLSX) await new Promise((ok, no) => {
     const s = document.createElement("script");
     s.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"; s.onload = ok; s.onerror = no;
     document.head.append(s);
   });
+}
+async function exportCsv() {
+  status("Подготовка…");
+  const rows = await exportRows();
+  if (!rows.length) { status("Списъкът с обекти е празен."); return; }
+  download(csvBlob(rows), `kais-${stamp()}.csv`);
+  status(`Изнесени ${rows.length} реда (CSV).`);
+}
+async function exportXlsx() {
+  status("Подготовка…");
+  await loadXlsx();
   const rows = await exportRows();
   if (!rows.length) { status("Списъкът с обекти е празен."); return; }
   const wb = XLSX.utils.book_new();

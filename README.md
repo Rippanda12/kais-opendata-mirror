@@ -8,7 +8,7 @@ An unofficial mirror of the open data from the Bulgarian cadastre (Агенци�
 common areas** (идеални части), addresses, entrance, floor and cadastral identifiers. The data is
 published as Parquet and can be queried from a browser, DuckDB, Python or any HTTP client.
 
-- **Query page:** https://rippanda12.github.io/kais-opendata-mirror/ (e.g. `?oblast=BGS&cadnum=07079.602.802.1`)
+- **Query page:** https://rippanda12.github.io/kais-opendata-mirror/ (e.g. `?oblast=VAR&cadnum=10135.2562.46.1`)
 - **Files:** [latest release](https://github.com/Rippanda12/kais-opendata-mirror/releases/latest)
 - **Coverage:** област Бургас (BGS) for now; see [the country plan](#rest-of-the-country).
 
@@ -56,8 +56,8 @@ attached to every release and also served by GitHub Pages under `/data/`.
 
 | column | meaning |
 |---|---|
-| `cadnum` | unit id `EKATTE.region.parcel.building.unit`, e.g. `07079.602.802.1.5` |
-| `building` | derived: the first four parts, e.g. `07079.602.802.1` |
+| `cadnum` | unit id `EKATTE.region.parcel.building.unit`, e.g. `10135.2562.46.1.5` |
+| `building` | derived: the first four parts, e.g. `10135.2562.46.1` |
 | `cadreg`, `cadimm`, `cadbuild`, `cadapp` | the parts of `cadnum` as numbers |
 | `ekatte`, `ekattefn` | settlement code and name |
 | `immaddr` | full address as in the register |
@@ -66,7 +66,7 @@ attached to every release and also served by GitHub Pages under `/data/`.
 | `appnum`, `appcode`, `apptype` | unit number, type code, type |
 | `apparea` | area of the unit per the register, m² |
 | `area`, `perim` | area/perimeter of the polygon, m |
-| `adjpart` | **raw text** of the ideal parts, e.g. `13,09 кв.м (2,89%) идеални части от общите части на сградата` |
+| `adjpart` | **raw text** of the ideal parts, e.g. `12,40 кв.м (2,15%) идеални части от общите части на сградата` |
 | `adjpart_sqm`, `adjpart_pct` | derived: m² and % parsed from `adjpart`, empty when the text doesn't clearly state them |
 | `propcode`, `proptype` | kind of property (частна, държавна, общинска …); no owners |
 | `validate` | the order that approved the cadastral map |
@@ -92,8 +92,8 @@ what the register says, not as a checked distribution.
 ### In the browser
 
 On the [query page](https://rippanda12.github.io/kais-opendata-mirror/), pick the oblast and enter
-a building id (`07079.602.802.1`) or a unit id, or search an address
-(`славейков бл. 129`, `изгрев бл. 35 вх. 2`). The map is styled like the KAIS cadastral map: plain
+a building id (`10135.2562.46.1`) or a unit id, or search an address
+(`чайка бл. 10`, `чайка бл. 10 вх. А`). The map is styled like the KAIS cadastral map: plain
 ground, faint grey streets, grey buildings with black outlines and their numbers from zoom 17.
 Click a building to see its units; a search flies to the building. The page runs DuckDB-wasm and reads only the parts
 of the Parquet it needs, using HTTP range requests against GitHub Pages. There is no server.
@@ -108,13 +108,13 @@ because of CORS; use the Pages URLs `https://rippanda12.github.io/kais-opendata-
 INSTALL httpfs; LOAD httpfs;
 SELECT cadnum, entrance, flrnum, appnum, apparea, adjpart_sqm, adjpart_pct, adjpart
 FROM 'https://github.com/Rippanda12/kais-opendata-mirror/releases/latest/download/units-BGS.parquet'
-WHERE building = '07079.602.802.1' ORDER BY cadapp;
+WHERE building = '10135.2562.46.1' ORDER BY cadapp;
 ```
 
 ```bash
 pip install -e .
-python -m kaismirror query --data https://rippanda12.github.io/kais-opendata-mirror/data --cadnum 07079.602.802.1
-python -m kaismirror query --data https://rippanda12.github.io/kais-opendata-mirror/data --address "славейков бл. 129"
+python -m kaismirror query --data https://rippanda12.github.io/kais-opendata-mirror/data --cadnum 10135.2562.46.1
+python -m kaismirror query --data https://rippanda12.github.io/kais-opendata-mirror/data --address "чайка бл. 10"
 ```
 
 The EKATTE code in the first five digits of `cadnum` tells you the settlement. Map it to an oblast

@@ -8,7 +8,7 @@
 кадастралните идентификатори. Данните са във формат Parquet и се търсят от браузъра, от DuckDB, от
 Python или с обикновена HTTP заявка.
 
-- **Страница за търсене:** https://rippanda12.github.io/kais-opendata-mirror/ (напр. `?oblast=BGS&cadnum=07079.602.802.1`)
+- **Страница за търсене:** https://rippanda12.github.io/kais-opendata-mirror/ (напр. `?oblast=VAR&cadnum=10135.2562.46.1`)
 - **Файлове:** [последният release](https://github.com/Rippanda12/kais-opendata-mirror/releases/latest)
 - **Обхват:** засега област Бургас (BGS); вижте [плана за страната](#останалата-част-от-страната).
 
@@ -56,8 +56,8 @@ Python или с обикновена HTTP заявка.
 
 | колона | значение |
 |---|---|
-| `cadnum` | идентификатор на обекта `ЕКАТТЕ.район.имот.сграда.обект`, напр. `07079.602.802.1.5` |
-| `building` | изчислена: първите четири части, напр. `07079.602.802.1` |
+| `cadnum` | идентификатор на обекта `ЕКАТТЕ.район.имот.сграда.обект`, напр. `10135.2562.46.1.5` |
+| `building` | изчислена: първите четири части, напр. `10135.2562.46.1` |
 | `cadreg`, `cadimm`, `cadbuild`, `cadapp` | частите на `cadnum` като числа |
 | `ekatte`, `ekattefn` | код и име на населеното място |
 | `immaddr` | пълният адрес по регистъра |
@@ -66,7 +66,7 @@ Python или с обикновена HTTP заявка.
 | `appnum`, `appcode`, `apptype` | номер, код на вида, вид на обекта |
 | `apparea` | площ на обекта по регистъра, м² |
 | `area`, `perim` | площ/периметър на полигона, м |
-| `adjpart` | **суровият текст** за идеалните части, напр. `13,09 кв.м (2,89%) идеални части от общите части на сградата` |
+| `adjpart` | **суровият текст** за идеалните части, напр. `12,40 кв.м (2,15%) идеални части от общите части на сградата` |
 | `adjpart_sqm`, `adjpart_pct` | изчислени: м² и %, извлечени от `adjpart`; празни, когато текстът не ги посочва ясно |
 | `propcode`, `proptype` | вид собственост (частна, държавна, общинска …); без собственици |
 | `validate` | заповедта за одобряване на кадастралната карта |
@@ -92,8 +92,8 @@ Python или с обикновена HTTP заявка.
 ### В браузъра
 
 На [страницата за търсене](https://rippanda12.github.io/kais-opendata-mirror/) изберете
-областта и въведете идентификатор на сграда (`07079.602.802.1`) или на обект, или потърсете адрес
-(`славейков бл. 129`, `изгрев бл. 35 вх. 2`). Картата е оформена като кадастралната карта на КАИС:
+областта и въведете идентификатор на сграда (`10135.2562.46.1`) или на обект, или потърсете адрес
+(`чайка бл. 10`, `чайка бл. 10 вх. А`). Картата е оформена като кадастралната карта на КАИС:
 светъл фон, бледи сиви улици, сиви сгради с черни контури и номерата им от мащаб 17. Клик върху
 сграда показва обектите ѝ; търсенето отвежда картата до сградата. Страницата използва DuckDB-wasm и чете само нужните
 части от Parquet файловете с HTTP range заявки към GitHub Pages. Няма сървър.
@@ -109,13 +109,13 @@ Python или с обикновена HTTP заявка.
 INSTALL httpfs; LOAD httpfs;
 SELECT cadnum, entrance, flrnum, appnum, apparea, adjpart_sqm, adjpart_pct, adjpart
 FROM 'https://github.com/Rippanda12/kais-opendata-mirror/releases/latest/download/units-BGS.parquet'
-WHERE building = '07079.602.802.1' ORDER BY cadapp;
+WHERE building = '10135.2562.46.1' ORDER BY cadapp;
 ```
 
 ```bash
 pip install -e .
-python -m kaismirror query --data https://rippanda12.github.io/kais-opendata-mirror/data --cadnum 07079.602.802.1
-python -m kaismirror query --data https://rippanda12.github.io/kais-opendata-mirror/data --address "славейков бл. 129"
+python -m kaismirror query --data https://rippanda12.github.io/kais-opendata-mirror/data --cadnum 10135.2562.46.1
+python -m kaismirror query --data https://rippanda12.github.io/kais-opendata-mirror/data --address "чайка бл. 10"
 ```
 
 Кодът ЕКАТТЕ в първите пет цифри на `cadnum` показва населеното място. Областта се намира от

@@ -21,7 +21,7 @@ def _src(data: str, name: str, oblast: str) -> str:
 def by_cadnum(data: str, oblast: str, cadnum: str):
     cadnum = cadnum.strip()
     if not re.fullmatch(r"\d{5}(\.\d+){1,4}", cadnum):
-        raise SystemExit("cadnum looks like 07079.602.802.1 (building) or 07079.602.802.1.5 (unit)")
+        raise SystemExit("cadnum looks like 10135.2562.46.1 (building) or 10135.2562.46.1.5 (unit)")
     parts = cadnum.count(".") + 1
     where = "building = $1" if parts == 4 else "cadnum = $1" if parts == 5 else "starts_with(cadnum, $1 || '.')"
     con = duckdb.connect()

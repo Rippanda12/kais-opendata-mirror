@@ -29,7 +29,7 @@ ROW_GROUP = 8192
 _N = r"(\d+(?:[.,]\d+)?)"
 _M2 = r"(?:кв\.?\s*м\.?|м2|m2)"
 _PCT = re.compile(_N + r"\s*%")
-# area of the ideal parts: "13,09 кв.м (2,89%) идеални…", "8,48 кв.м ид.ч.", "2,564% (15,13кв.м.)",
+# area of the ideal parts: "12,40 кв.м (2,15%) идеални…", "4,22 кв.м ид.ч.", "2,564% (15,13кв.м.)",
 # "2.526% ид.ч. … = 8.28м2". A bare "изба 3,00 кв.м." is the cellar, not the ideal parts.
 _SQM = [
     re.compile(_N + r"\s*" + _M2 + r"\s*\(?\s*" + _N + r"\s*%"),  # sqm (pct%)
@@ -51,7 +51,7 @@ def _num(s: str) -> float:
 
 
 def parse_adjpart(text: str | None) -> tuple[float | None, float | None]:
-    """'13,09 кв.м (2,89%) идеални части…' or '1.129% (7.14кв.м.) …' -> (sqm, percent).
+    """'12,40 кв.м (2,15%) идеални части…' or '1.129% (7.14кв.м.) …' -> (sqm, percent).
 
     Only values the text clearly states as ideal parts; a percentage above 100 is a typo in the
     register and gives None (the raw text stays in `adjpart`).

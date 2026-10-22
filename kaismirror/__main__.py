@@ -52,7 +52,7 @@ def main(argv=None) -> int:
     q.add_argument("--oblast", default="BGS")
     g = q.add_mutually_exclusive_group(required=True)
     g.add_argument("--cadnum", help="building (4 parts) or unit (5 parts) identifier")
-    g.add_argument("--address", help="words that must all appear, e.g. 'изгрев бл. 35 вх. 2'")
+    g.add_argument("--address", help="words that must all appear, e.g. 'чайка бл. 10 вх. А'")
 
     a = p.parse_args(argv)
     if a.cmd == "settlements":
