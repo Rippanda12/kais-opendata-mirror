@@ -1,0 +1,109 @@
+name: fetch-oblasts
+
+# Manual: fetch whole oblasts (towns and villages) one after another, convert them, and upload the
+# results to the DRAFT release "staging". A draft is visible only to the repo's collaborators and
+# does not touch GitHub Pages, so nothing is public until it is published on purpose.
+#
+# Politeness: one oblast at a time (max-parallel 1), one request per 5 s inside it, stop on 403.
+# Raw zips are cached per oblast and month, so a re-run resumes where a stopped job ended.
+on:
+  workflow_dispatch:
+    inputs:
+      oblasts:
+        description: "Oblast codes, space separated, or ALL"
+        default: "ALL"
+      exclude:
+        description: "Codes to leave out when ALL"
+        default: "BGS"
+      kinds:
+        description: "Files per settlement"
+        default: "buildings,units,parcels"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kais-fetch
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      oblasts: ${{ steps.list.outputs.oblasts }}
+      month: ${{ steps.list.outputs.month }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - id: list
+        env:
+          OBLASTS: ${{ inputs.oblasts }}
+          EXCLUDE: ${{ inputs.exclude }}
+        run: |
+          if [ "$OBLASTS" = "ALL" ]; then
+            list=$(python -m kaismirror oblasts --exclude "$EXCLUDE")
+          else
+            list=$(python -c "import json,os; print(json.dumps(os.environ['OBLASTS'].upper().split()))")
+          fi
+          echo "oblasts=$list" >> "$GITHUB_OUTPUT"
+          # runners are on UTC; the month only keys the cache (the release name comes from KAIS's export date)
+          echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+  oblast:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        oblast: ${{ fromJSON(needs.plan.outputs.oblasts) }}
+    env:
+      OBL: ${{ matrix.oblast }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/raw/${{ matrix.oblast }}
+          key: raw-${{ matrix.oblast }}-${{ needs.plan.outputs.month }}-${{ github.run_id }}
+          restore-keys: raw-${{ matrix.oblast }}-${{ needs.plan.outputs.month }}-
+
+      - name: Fetch
+        id: fetch
+        run: python -m kaismirror fetch "$OBL" --kinds "${{ inputs.kinds }}"
+
+      # saved even when the fetch stopped on a 403, so a re-run continues instead of starting over
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: data/raw/${{ matrix.oblast }}
+          key: raw-${{ matrix.oblast }}-${{ needs.plan.outputs.month }}-${{ github.run_id }}
+
+      - name: Install tippecanoe
+        run: |
+          sudo apt-get install -y -qq libsqlite3-dev zlib1g-dev
+          git clone -q --depth 1 --branch 2.79.0 https://github.com/felt/tippecanoe.git /tmp/tippecanoe
+          make -s -C /tmp/tippecanoe -j"$(nproc)" && sudo make -s -C /tmp/tippecanoe install
+
+      - name: Convert, tiles, neighbours
+        run: |
+          python -m kaismirror convert "$OBL"
+          python -m kaismirror tiles "$OBL"
+          cp "data/raw/$OBL/manifest.json" "data/out/manifest-$OBL.json"
+
+      - name: Upload to the draft release "staging"
+        run: |
+          if ! gh release view staging >/dev/null 2>&1; then
+            gh release create staging --draft --title "staging (not public)" \
+              --notes "Oblasts fetched by the fetch-oblasts workflow. Draft: visible to collaborators only."
+          fi
+          gh release upload staging data/out/*-"$OBL".parquet data/out/*-"$OBL".pmtiles "data/out/manifest-$OBL.json" --clobber

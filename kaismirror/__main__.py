@@ -19,12 +19,17 @@ def main(argv=None) -> int:
     s.add_argument("oblast", nargs="*")
     s.add_argument("--only", choices=["towns", "villages"])
 
+    ob = sub.add_parser("oblasts", help="print oblast codes as JSON (for a CI matrix)")
+    ob.add_argument("--exclude", default="", help="space or comma separated codes to leave out")
+
     f = sub.add_parser("fetch", help="download zips")
     f.add_argument("oblast", nargs="+", help="oblast codes, e.g. BGS VAR, or ALL")
     f.add_argument("--raw", type=Path, default=Path("data/raw"))
     f.add_argument("--workers", type=int, default=1)
     f.add_argument("--delay", type=float, default=5.0, help="seconds between requests per worker")
     f.add_argument("--only", choices=["towns", "villages"], help="towns („гр.“) or the rest; default both")
+    f.add_argument("--kinds", default="buildings,units", help="comma list of buildings,units,parcels")
+    f.add_argument("--ekatte", help="comma list of EKATTE codes to limit the run to")
 
     c = sub.add_parser("convert", help="zips -> Parquet")
     c.add_argument("oblast", nargs="+")
@@ -34,6 +39,7 @@ def main(argv=None) -> int:
 
     m = sub.add_parser("tiles", help="building outlines -> PMTiles (needs tippecanoe)")
     m.add_argument("oblast", nargs="+")
+    m.add_argument("--kinds", default="buildings,parcels", help="which layers (parcels only where fetched)")
     m.add_argument("--raw", type=Path, default=Path("data/raw"))
     m.add_argument("--out", type=Path, default=Path("data/out"))
 
@@ -52,11 +58,18 @@ def main(argv=None) -> int:
     if a.cmd == "settlements":
         for st in ekatte.settlements(a.ekatte_year, a.oblast or None, a.only):
             print(st.folder)
+    elif a.cmd == "oblasts":
+        skip = {c.upper() for c in a.exclude.replace(",", " ").split()}
+        print(json.dumps(sorted({s.oblast for s in ekatte.settlements(a.ekatte_year)} - skip)))
     elif a.cmd == "fetch":
         from .fetch import Forbidden, fetch
         obl = None if a.oblast == ["ALL"] else a.oblast
         try:
-            man = fetch(ekatte.settlements(a.ekatte_year, obl, a.only), a.raw, workers=a.workers, delay=a.delay)
+            places = ekatte.settlements(a.ekatte_year, obl, a.only)
+            if a.ekatte:
+                wanted = set(a.ekatte.split(","))
+                places = [s for s in places if s.ekatte in wanted]
+            man = fetch(places, a.raw, kinds=tuple(a.kinds.split(",")), workers=a.workers, delay=a.delay)
         except Forbidden as e:
             print(f"403 from KAIS, stopping: {e}", file=sys.stderr)
             return 2
@@ -70,9 +83,12 @@ def main(argv=None) -> int:
         for o in a.oblast:
             print(o, convert_oblast(a.raw, a.out, o.upper(), geometry=a.geometry))
     elif a.cmd == "tiles":
+        from .neighbours import build_neighbours
         from .tiles import build_tiles
         for o in a.oblast:
-            print(build_tiles(a.raw, a.out, o.upper()))
+            for kind in a.kinds.split(","):
+                print(build_tiles(a.raw, a.out, o.upper(), kind))
+            print(build_neighbours(a.raw, a.out, o.upper()))
     elif a.cmd == "site":
         from .site import build
         print(json.dumps(build(a.out, a.site), ensure_ascii=False))

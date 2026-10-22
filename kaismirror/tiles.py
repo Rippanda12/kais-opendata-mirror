@@ -1,7 +1,8 @@
-"""Building outlines -> WGS84 GeoJSON lines -> PMTiles (vector tiles in one file) with tippecanoe.
+"""Building and parcel outlines -> WGS84 GeoJSON lines -> PMTiles (vector tiles in one file) with tippecanoe.
 
 KAIS ships the polygons in BGS2005 (Lambert conformal conic, the `.prj` in each zip); web maps want
-WGS84. The tiles carry only what the map shows: cadastral id, building number, floors, units.
+WGS84. The tiles carry only what the map shows: cadastral id, short number, and for buildings
+floors/units, for parcels purpose, use, locality and area. No owners.
 """
 from __future__ import annotations
 
@@ -65,7 +66,33 @@ def _geometry(rings, tr: Transformer) -> dict:
     return {"type": "MultiPolygon", "coordinates": polys}
 
 
-def features(path: Path) -> Iterator[dict]:
+def _building_props(rec: dict) -> dict:
+    cad = rec.get("cadnum") or ""
+    return {"c": cad, "n": cad.rsplit(".", 1)[-1], "f": rec.get("flrcount") or 0, "u": rec.get("appcount") or 0}
+
+
+def _parcel_props(rec: dict) -> dict:
+    cad = rec.get("cadnum") or ""
+    return {
+        "c": cad,
+        "n": ".".join(cad.split(".")[1:]),  # район.имот, as KAIS labels parcels
+        "p": rec.get("purpcode") or "",
+        "pt": rec.get("purptype") or "",
+        "ut": rec.get("usetype") or "",
+        "pl": rec.get("place") or rec.get("quarname") or "",
+        "a": round(rec.get("AREA") or 0),
+        "pr": rec.get("proptype") or "",
+        "v": rec.get("validate") or "",  # repeated per settlement; vector tiles store each value once per tile
+    }
+
+
+KINDS = {
+    "buildings": (_building_props, 12),  # properties, minimum zoom
+    "parcels": (_parcel_props, 13),
+}
+
+
+def features(path: Path, props=_building_props) -> Iterator[dict]:
     zf = zipfile.ZipFile(path, metadata_encoding="cp866")
     dbf, shp = _member(zf, ".dbf"), _member(zf, ".shp")
     if not dbf or not shp:
@@ -75,35 +102,29 @@ def features(path: Path) -> Iterator[dict]:
     for rec, rings in zip(records, _rings(zf.open(shp))):
         if not rings:
             continue
-        cad = rec.get("cadnum") or ""
-        yield {
-            "type": "Feature",
-            "properties": {
-                "c": cad,
-                "n": cad.rsplit(".", 1)[-1],
-                "f": rec.get("flrcount") or 0,
-                "u": rec.get("appcount") or 0,
-            },
-            "geometry": _geometry(rings, tr),
-        }
+        yield {"type": "Feature", "properties": props(rec), "geometry": _geometry(rings, tr)}
 
 
-def build_tiles(raw: Path, out: Path, oblast: str, log=print) -> Path:
+def build_tiles(raw: Path, out: Path, oblast: str, kind: str = "buildings", log=print) -> Path | None:
     if not shutil.which("tippecanoe"):
         raise SystemExit("tippecanoe not found (brew install tippecanoe / build felt/tippecanoe)")
     out.mkdir(parents=True, exist_ok=True)
-    seq = out / f".buildings-{oblast}.geojsonl"
+    props, minzoom = KINDS[kind]
+    seq = out / f".{kind}-{oblast}.geojsonl"
     n = 0
     with open(seq, "w") as f:
-        for z in sorted((raw / oblast).glob("*/buildings.zip")):
-            for feat in features(z):
+        for z in sorted((raw / oblast).glob(f"*/{kind}.zip")):
+            for feat in features(z, props):
                 f.write(json.dumps(feat, ensure_ascii=False, separators=(",", ":")) + "\n")
                 n += 1
-    log(f"{n} building outlines")
-    target = out / f"buildings-{oblast}.pmtiles"
+    log(f"{n} {kind} outlines")
+    if not n:
+        seq.unlink()
+        return None
+    target = out / f"{kind}-{oblast}.pmtiles"
     subprocess.run(
-        ["tippecanoe", "-o", str(target), "--force", "--quiet", "-l", "buildings",
-         "-Z12", "-z16", "--drop-smallest-as-needed", "--extend-zooms-if-still-dropping",
+        ["tippecanoe", "-o", str(target), "--force", "--quiet", "-l", kind,
+         f"-Z{minzoom}", "-z16", "--drop-smallest-as-needed", "--extend-zooms-if-still-dropping",
          "--attribution", "АГКК / КАИС — Отворени данни", str(seq)],
         check=True,
     )

@@ -4,56 +4,144 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Кадастър: сгради и обекти</title>
-<meta name="description" content="Неофициално огледало на отворените данни на АГКК (КАИС): сгради и самостоятелни обекти с площи и идеални части.">
+<meta name="description" content="Неофициално огледало на отворените данни на АГКК (КАИС): сгради, самостоятелни обекти и имоти с площи и идеални части.">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/pmtiles@3.2.1/dist/pmtiles.js"></script>
 <style>
-:root { --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6a64; --line:#e3e0d8; --accent:#2f6b4f; --hit:#eef5f0; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#161715; --fg:#ecebe6; --muted:#9a998f; --line:#2c2e2a; --accent:#7fc4a0; --hit:#1f2a24; } }
-:root[data-theme="dark"] { --bg:#161715; --fg:#ecebe6; --muted:#9a998f; --line:#2c2e2a; --accent:#7fc4a0; --hit:#1f2a24; }
+:root { --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6a64; --line:#e3e0d8; --accent:#2f6b4f; --hit:#eef5f0; --sel:#fbe9e5; --sbw:420px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#161715; --fg:#ecebe6; --muted:#9a998f; --line:#2c2e2a; --accent:#7fc4a0; --hit:#1f2a24; --sel:#3a221d; } }
+:root[data-theme="dark"] { --bg:#161715; --fg:#ecebe6; --muted:#9a998f; --line:#2c2e2a; --accent:#7fc4a0; --hit:#1f2a24; --sel:#3a221d; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width:1100px; margin:0 auto; padding:24px 16px 64px; }
 h1 { font-size:22px; margin:0 0 4px; }
-p.lead { color:var(--muted); margin:0 0 20px; }
-form { display:grid; grid-template-columns: 140px 1fr auto; gap:8px; margin-bottom:10px; }
+p.lead { color:var(--muted); margin:0 0 16px; }
+form { display:grid; grid-template-columns: 150px 1fr auto; gap:8px; margin-bottom:10px; }
 select, input, button { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:transparent; color:inherit; min-width:0; }
+select option { color:#1d1d1b; }
 button { background:var(--accent); color:var(--bg); border-color:var(--accent); cursor:pointer; }
+button.ghost { background:transparent; color:var(--accent); }
 #status { color:var(--muted); min-height:1.4em; margin:8px 0; }
+.hint { color:var(--muted); font-size:13px; margin:-4px 0 8px; }
 .wrap { overflow-x:auto; }
 table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
 th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
 th { font-weight:600; font-size:13px; color:var(--muted); }
 td.n { text-align:right; white-space:nowrap; }
 tr.click { cursor:pointer; } tr.click:hover { background:var(--hit); }
-tfoot td { font-weight:600; }
-#map { height:440px; border:1px solid var(--line); border-radius:6px; margin:12px 0 4px; background:#f6f5f1; }
-@media (max-width:640px) { #map { height:320px; } }
+tr.picked { background:var(--sel); }
+h2.side { font-size:15px; margin:14px 0 6px; display:flex; align-items:center; gap:8px; }
+h2.side span { margin-left:auto; display:flex; gap:6px; }
+h2.side button { padding:4px 10px; font-size:13px; }
+#list-empty { color:var(--muted); font-size:13px; }
 footer { margin-top:32px; color:var(--muted); font-size:13px; }
 a { color:var(--accent); }
-@media (max-width:640px) { form { grid-template-columns: 1fr; } }
+
+/* Layout. Normal page: map, then the panel below. Expanded: panel docked left, map beside it (not under it). */
+#app { display:flex; flex-direction:column; }
+#stage { order:1; position:relative; height:460px; border:1px solid var(--line); border-radius:6px; margin:4px 0 8px; overflow:hidden; }
+#map { position:absolute; inset:0; background:#f6f5f1; }
+#panel { order:2; }
+#resizer, #sb-head { display:none; }
+body.expanded { overflow:hidden; }
+body.expanded #app { position:fixed; inset:0; z-index:10; display:grid; grid-template-columns: var(--sbw) 6px 1fr; background:var(--bg); }
+body.expanded #panel { order:0; overflow:auto; padding:0 12px 12px; border-right:1px solid var(--line); }
+body.expanded #resizer { display:block; order:0; cursor:col-resize; background:transparent; }
+body.expanded #resizer:hover, body.expanded #resizer.drag { background:var(--line); }
+body.expanded #stage { order:0; height:auto; margin:0; border:0; border-radius:0; }
+body.expanded #sb-head { display:flex; align-items:center; gap:8px; position:sticky; top:0; background:var(--bg); padding:10px 0 8px; z-index:1; }
+body.expanded #sb-head b { margin-right:auto; }
+body.expanded #panel form { grid-template-columns: 1fr auto; }
+body.expanded #panel form select { grid-column: 1 / -1; }
+body.expanded #panel form span { display:none; }
+body.expanded.collapsed #app { grid-template-columns: 1fr; }
+body.expanded.collapsed #panel, body.expanded.collapsed #resizer { display:none; }
+#sb-open { display:none; position:absolute; left:10px; bottom:30px; z-index:5; padding:6px 10px; font-size:14px; }
+body.expanded.collapsed #sb-open { display:block; }
+.expand-btn { font-size:16px; line-height:29px; width:29px; height:29px; padding:0; border:0; background:#fff; color:#333; border-radius:4px; }
+
+/* Tool bar: information (default), box select, measure area. */
+#tools { position:absolute; left:10px; top:10px; z-index:3; display:flex; background:#fff; border-radius:6px; box-shadow:0 1px 4px rgba(0,0,0,.25); overflow:hidden; }
+#tools button { background:#fff; color:#333; border:0; border-right:1px solid #e3e3df; border-radius:0; padding:6px 10px; font-size:13px; }
+#tools button:last-child { border-right:0; }
+#tools button[aria-pressed="true"] { background:#2f6b4f; color:#fff; }
+#tool-hint { position:absolute; left:10px; top:46px; z-index:3; background:rgba(255,255,255,.95); color:#333; font-size:12px; padding:4px 8px; border-radius:4px; display:none; max-width:calc(100% - 20px); }
+#tool-hint.on { display:block; }
+#box { position:absolute; z-index:3; border:2px dashed #b3261e; background:rgba(224,83,60,.12); pointer-events:none; display:none; }
+#measure-out { position:absolute; left:50%; transform:translateX(-50%); bottom:30px; z-index:3; background:#fff; color:#1d1d1b; padding:6px 12px; border-radius:6px;
+  box-shadow:0 2px 8px rgba(0,0,0,.25); font-size:14px; display:none; font-variant-numeric:tabular-nums; }
+#measure-out.on { display:block; }
+
+/* Floating information windows on the map, KAIS-style. */
+.win { position:absolute; z-index:4; width:360px; max-width:calc(100% - 20px); max-height:calc(100% - 20px); display:flex; flex-direction:column;
+  background:#fff; color:#1d1d1b; border-radius:6px; box-shadow:0 8px 28px rgba(0,0,0,.28); font-size:14px; }
+.win header { display:flex; align-items:center; gap:8px; padding:8px 10px; cursor:move; user-select:none; border-radius:6px 6px 0 0;
+  background:linear-gradient(#f3f8f1, #e3efe0); border-bottom:1px solid #d7e2d3; font-size:13px; }
+.win header b { flex:1; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.win header button { background:none; border:0; color:#333; font-size:18px; line-height:1; padding:0 2px; }
+.win .body { overflow:auto; padding:10px 12px 12px; }
+.win h3 { font-size:14px; margin:0 0 6px; padding:6px 8px; background:#f4f4f2; border-bottom:1px solid #e3e3df; }
+.win h4 { font-size:13px; margin:12px 0 4px; padding:4px 8px; background:#f4f4f2; }
+.win p { margin:6px 8px; line-height:1.5; }
+.win .add { color:#2f6b4f; cursor:pointer; margin:6px 8px; display:inline-block; }
+.win .add.done { color:#888; cursor:default; }
+.win select { width:100%; border-color:#cfcfc9; color:#1d1d1b; margin:4px 0 6px; }
+.item { display:flex; gap:8px; align-items:flex-start; background:#ececea; border-radius:6px; padding:7px 8px; margin:6px 0; }
+.item .t { flex:1; font-size:13px; line-height:1.35; }
+.item .t b { font-size:13px; }
+.item .acts { display:flex; gap:4px; }
+.item .acts button { width:24px; height:24px; padding:0; border-radius:50%; border:1px solid #c9c9c4; background:#fff; color:#333; font-size:13px; line-height:22px; }
+@media (max-width:640px) {
+  form { grid-template-columns: 1fr; } #stage { height:340px; }
+  body.expanded #app { grid-template-columns: 1fr; grid-template-rows: 1fr 45vh; }
+  body.expanded #panel { order:2; border-right:0; border-top:1px solid var(--line); }
+  body.expanded #resizer { display:none; }
+  .win { width:calc(100% - 20px); }
+}
 </style>
 </head>
 <body>
 <main>
-  <h1>Сгради и самостоятелни обекти</h1>
+  <h1>Сгради, обекти и имоти</h1>
   <p class="lead">Отворени данни на АГКК (КАИС), неофициално огледало. Търсене по кадастрален идентификатор или по адрес.</p>
 
-  <form id="f-cad">
-    <select id="oblast" aria-label="Област"></select>
-    <input id="cadnum" placeholder="07079.602.802.1 — сграда или 07079.602.802.1.5 — обект" autocomplete="off">
-    <button>Покажи</button>
-  </form>
-  <form id="f-addr">
-    <span></span>
-    <input id="addr" placeholder="Адрес: напр. изгрев бл. 35 вх. 2" autocomplete="off">
-    <button>Търси</button>
-  </form>
+  <div id="app">
+    <div id="panel">
+      <div id="sb-head"><b>Кадастър</b><button type="button" class="ghost" id="sb-close" title="Скрий панела">«</button></div>
+      <form id="f-cad">
+        <select id="area" aria-label="Област за търсене по адрес"></select>
+        <input id="cadnum" placeholder="Идентификатор: имот, сграда или обект (07079.602.802.1)" autocomplete="off">
+        <button>Покажи</button>
+      </form>
+      <form id="f-addr">
+        <span></span>
+        <input id="addr" placeholder="Адрес: напр. изгрев бл. 35 вх. 2" autocomplete="off">
+        <button>Търси</button>
+      </form>
 
-  <div id="map" role="region" aria-label="Карта на сградите"></div>
-  <div id="status">Зареждане…</div>
-  <div class="wrap"><table id="out"></table></div>
+      <h2 class="side">Списък с обекти <small id="list-count"></small>
+        <span><button type="button" id="sel-csv">CSV</button><button type="button" id="sel-xlsx">Excel</button><button type="button" class="ghost" id="sel-clear">Изчисти</button></span></h2>
+      <div id="list"><p id="list-empty">Няма добавени обекти.</p></div>
+
+      <h2 class="side">Резултати</h2>
+      <div id="status">Зареждане…</div>
+      <div class="wrap"><table id="out"></table></div>
+    </div>
+    <div id="resizer" role="separator" aria-label="Ширина на панела"></div>
+    <div id="stage">
+      <div id="map" role="region" aria-label="Карта"></div>
+      <div id="tools" role="toolbar" aria-label="Инструменти">
+        <button type="button" data-tool="info" aria-pressed="true" title="Клик върху сграда или имот показва информация">ℹ Информация</button>
+        <button type="button" data-tool="select" aria-pressed="false" title="Влачете правоъгълник, за да изберете сгради (с Alt — имоти)">▭ Избор</button>
+        <button type="button" data-tool="measure" aria-pressed="false" title="Кликнете точки; двоен клик или Enter затваря">📐 Площ</button>
+      </div>
+      <div id="tool-hint"></div>
+      <div id="box"></div>
+      <div id="measure-out"></div>
+      <button type="button" id="sb-open" title="Покажи панела">» Панел</button>
+    </div>
+  </div>
 
   <footer>
     Източник: <a href="https://kais.cadastre.bg/bg/OpenData">Агенция по геодезия, картография и кадастър — Отворени данни</a>.
@@ -68,139 +156,601 @@ import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0
 const $ = (id) => document.getElementById(id);
 const status = (t) => ($("status").textContent = t);
 const dataUrl = (name) => new URL(`data/${name}`, location.href).href;
-
-const meta = await fetch("data/meta.json").then((r) => r.json());
-for (const o of meta.oblasts) $("oblast").add(new Option(o.name, o.code));
-$("asof").textContent = meta.source_date;
-
-// Map: KAIS-like cadastral look — near-white ground, faint grey streets, grey buildings, black outlines.
-maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
-const tilesUrl = (o) => `pmtiles://${dataUrl(`buildings-${o}.pmtiles`)}`;
-const centerOf = (o) => meta.oblasts.find((x) => x.code === o)?.center ?? [25.4, 42.7];
-const none = ["==", ["get", "c"], ""];
-const map = new maplibregl.Map({
-  container: "map", center: centerOf(meta.oblasts[0]?.code), zoom: 12, maxZoom: 20, hash: false,
-  style: {
-    version: 8,
-    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-    sources: {
-      osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, maxzoom: 19,
-             attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
-      b: { type: "vector", url: tilesUrl(meta.oblasts[0]?.code) },
-    },
-    layers: [
-      { id: "ground", type: "background", paint: { "background-color": "#f6f5f1" } },
-      { id: "osm", type: "raster", source: "osm", paint: { "raster-saturation": -1, "raster-opacity": 0.28, "raster-contrast": -0.2 } },
-      { id: "b-fill", type: "fill", source: "b", "source-layer": "buildings",
-        paint: { "fill-color": ["case", [">", ["get", "u"], 0], "#bdb7ad", "#d6d2ca"] } },
-      { id: "b-line", type: "line", source: "b", "source-layer": "buildings",
-        paint: { "line-color": "#1d1d1b", "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.2, 17, 1, 19, 1.6] } },
-      { id: "sel-fill", type: "fill", source: "b", "source-layer": "buildings", filter: none,
-        paint: { "fill-color": "#e0533c", "fill-opacity": 0.55 } },
-      { id: "sel-line", type: "line", source: "b", "source-layer": "buildings", filter: none,
-        paint: { "line-color": "#b3261e", "line-width": 2.5 } },
-      { id: "b-num", type: "symbol", source: "b", "source-layer": "buildings", minzoom: 17,
-        layout: { "text-field": ["get", "n"], "text-font": ["Open Sans Semibold"], "text-size": 12 },
-        paint: { "text-color": "#1d1d1b", "text-halo-color": "#ffffff", "text-halo-width": 1.2 } },
-    ],
-  },
-});
-map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
-map.on("mouseenter", "b-fill", () => (map.getCanvas().style.cursor = "pointer"));
-map.on("mouseleave", "b-fill", () => (map.getCanvas().style.cursor = ""));
-map.on("click", "b-fill", (e) => {
-  const c = e.features[0]?.properties.c;
-  if (c) { $("cadnum").value = c; showCadnum(c, { fly: false }).catch((x) => status(x.message)); }
-});
-function select(building) {
-  const f = building ? ["==", ["get", "c"], building] : none;
-  map.setFilter("sel-fill", f); map.setFilter("sel-line", f);
-}
-$("oblast").addEventListener("change", () => {
-  const o = $("oblast").value;
-  map.getSource("b").setUrl(tilesUrl(o)); map.jumpTo({ center: centerOf(o), zoom: 12 }); select(null);
-});
-
-const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
-const worker = new Worker(URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" })));
-const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), worker);
-await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-const con = await db.connect();
-status("Готово.");
-
-const params = new URLSearchParams(location.search);
-if (params.get("oblast") && params.get("oblast") !== $("oblast").value) {
-  $("oblast").value = params.get("oblast"); $("oblast").dispatchEvent(new Event("change"));
-}
-
-async function run(sql, args) {
-  const stmt = await con.prepare(sql);
-  try { return (await stmt.query(...args)).toArray().map((r) => r.toJSON()); }
-  finally { await stmt.close(); }
-}
-
 const fmt = (v, d = 2) => (v == null ? "" : Number(v).toLocaleString("bg-BG", { minimumFractionDigits: d, maximumFractionDigits: d }));
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const fail = (x) => status(x.message ?? String(x));
 
-async function showCadnum(cad, { fly = true } = {}) {
-  cad = cad.trim();
-  if (!/^\d{5}(\.\d+){3,4}$/.test(cad)) { status("Идентификаторът е като 07079.602.802.1 (сграда) или 07079.602.802.1.5 (обект)."); return; }
-  const oblast = $("oblast").value;
-  history.replaceState(null, "", `?oblast=${oblast}&cadnum=${cad}`);
-  status("Търсене…");
-  const col = cad.split(".").length === 4 ? "building" : "cadnum";
-  const rows = await run(
-    `SELECT cadnum, entrance, flrnum, appnum, apptype, apparea, adjpart_sqm, adjpart_pct, adjpart, immaddr
-     FROM read_parquet('${dataUrl(`units-${oblast}.parquet`)}') WHERE ${col} = ? ORDER BY cadapp`, [cad]);
-  const building = cad.split(".").slice(0, 4).join(".");
-  if (fly) {
-    const [p] = await run(`SELECT lon, lat FROM read_parquet('${dataUrl(`search-${oblast}.parquet`)}') WHERE building = ?`, [building]);
-    if (p?.lon != null) map.flyTo({ center: [p.lon, p.lat], zoom: 18 });
+const meta = await fetch("data/meta.json").then((r) => r.json());
+$("area").add(new Option("Цялата страна", ""));
+for (const o of meta.oblasts) $("area").add(new Option(`обл. ${o.name}`, o.code));
+$("asof").textContent = meta.source_date;
+
+// A cadastral id starts with the EKATTE code of its settlement; meta.ekatte maps it to the oblast's files.
+const oblastOf = (cad) => meta.ekatte[cad.slice(0, 5)];
+const file = (kind, oblast) => `'${dataUrl(`${kind}-${oblast}.parquet`)}'`;
+const files = (kind, oblasts) => `[${oblasts.map((o) => file(kind, o)).join(",")}]`;
+const kindOf = (cad) => ({ 3: "parcel", 4: "building", 5: "unit" })[cad.split(".").length];
+const buildingOf = (cad) => cad.split(".").slice(0, 4).join(".");
+const parcelOf = (cad) => cad.split(".").slice(0, 3).join(".");
+const validId = (cad) => /^\d{5}(\.\d+){2,4}$/.test(cad);
+// Many ids go to DuckDB as a small in-memory CSV file read like a table. Neither a long list in the
+// SQL (parser overflow, "memory access out of bounds") nor a huge parameter (std::bad_cast) is safe
+// in DuckDB-wasm on a big box selection.
+let idFile = 0;
+async function idTable(list) {
+  const name = `ids-${++idFile}.csv`;
+  await db.registerFileText(name, "id\n" + list.filter((i) => /^[\d.]+$/.test(i)).join("\n") + "\n");
+  return `(SELECT id FROM read_csv('${name}', header = true, columns = {'id': 'VARCHAR'}))`;
+}
+const MAX_BOX = 3000, MAX_LIST_ROWS = 300;
+const shortAddr = (a) => (a ?? "").replace(/,\s*(ет|ап)\..*$/, "");
+const KIND_NAME = { parcel: "ПИ", building: "Сграда", unit: "СОС" };
+
+// ---------- Map: KAIS-like look — near-white ground, faint grey streets, red parcels, grey buildings.
+maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
+const nothing = ["==", ["get", "c"], ""];
+const center = meta.oblasts.length === 1 && meta.oblasts[0].center ? meta.oblasts[0].center : [25.4, 42.75];
+const sources = {
+  osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, maxzoom: 19,
+         attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
+  measure: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+};
+const layers = [
+  { id: "ground", type: "background", paint: { "background-color": "#f6f5f1" } },
+  { id: "osm", type: "raster", source: "osm", paint: { "raster-saturation": -1, "raster-opacity": 0.28, "raster-contrast": -0.2 } },
+];
+if (meta.parcels) {
+  sources.p = { type: "vector", url: `pmtiles://${dataUrl("parcels.pmtiles")}` };
+  layers.push(
+    { id: "p-fill", type: "fill", source: "p", "source-layer": "parcels",
+      paint: { "fill-color": ["match", ["get", "pt"], "Урбанизирана", "#f3e3df", "Земеделска", "#f4efd8", "Горска", "#e2eedd", "#f6f5f1"], "fill-opacity": 0.75 } },
+    { id: "p-sel", type: "fill", source: "p", "source-layer": "parcels", filter: nothing, paint: { "fill-color": "#e0533c", "fill-opacity": 0.22 } },
+    { id: "p-line", type: "line", source: "p", "source-layer": "parcels",
+      paint: { "line-color": "#9b2c22", "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.3, 17, 1, 19, 1.4] } },
+    { id: "p-sel-line", type: "line", source: "p", "source-layer": "parcels", filter: nothing, paint: { "line-color": "#b3261e", "line-width": 2.5 } },
+  );
+}
+if (meta.map) {
+  sources.b = { type: "vector", url: `pmtiles://${dataUrl("buildings.pmtiles")}` };
+  layers.push(
+    { id: "b-fill", type: "fill", source: "b", "source-layer": "buildings", paint: { "fill-color": ["case", [">", ["get", "u"], 0], "#bdb7ad", "#d6d2ca"] } },
+    { id: "b-line", type: "line", source: "b", "source-layer": "buildings",
+      paint: { "line-color": "#1d1d1b", "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.2, 17, 1, 19, 1.6] } },
+    { id: "b-sel", type: "fill", source: "b", "source-layer": "buildings", filter: nothing, paint: { "fill-color": "#e0533c", "fill-opacity": 0.55 } },
+    { id: "b-sel-line", type: "line", source: "b", "source-layer": "buildings", filter: nothing, paint: { "line-color": "#b3261e", "line-width": 2.5 } },
+    { id: "b-num", type: "symbol", source: "b", "source-layer": "buildings", minzoom: 17,
+      layout: { "text-field": ["get", "n"], "text-font": ["Open Sans Semibold"], "text-size": 12 },
+      paint: { "text-color": "#1d1d1b", "text-halo-color": "#ffffff", "text-halo-width": 1.2 } },
+  );
+}
+if (meta.parcels) layers.push({ id: "p-num", type: "symbol", source: "p", "source-layer": "parcels", minzoom: 16,
+  layout: { "text-field": ["get", "n"], "text-font": ["Open Sans Semibold"], "text-size": 11 },
+  paint: { "text-color": "#9b2c22", "text-halo-color": "#ffffff", "text-halo-width": 1.2 } });
+layers.push(
+  { id: "m-fill", type: "fill", source: "measure", filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": "#1f6fd1", "fill-opacity": 0.15 } },
+  { id: "m-line", type: "line", source: "measure", filter: ["!=", ["geometry-type"], "Point"], paint: { "line-color": "#1f6fd1", "line-width": 2, "line-dasharray": [2, 1] } },
+  { id: "m-pts", type: "circle", source: "measure", filter: ["==", ["geometry-type"], "Point"],
+    paint: { "circle-radius": 4, "circle-color": "#fff", "circle-stroke-color": "#1f6fd1", "circle-stroke-width": 2 } },
+);
+
+const map = new maplibregl.Map({
+  container: "map", center, zoom: meta.oblasts.length === 1 ? 11 : 7, maxZoom: 20,
+  boxZoom: false,  // Shift+click adds to the list instead
+  style: { version: 8, glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf", sources, layers },
+});
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
+const styleReady = new Promise((ok) => map.once("load", ok));
+class ExpandControl {
+  onAdd() {
+    const box = document.createElement("div");
+    box.className = "maplibregl-ctrl maplibregl-ctrl-group";
+    box.innerHTML = `<button class="expand-btn" type="button" title="Цял екран в раздела (Esc за изход)" aria-label="Разгъни картата">⤢</button>`;
+    box.querySelector("button").onclick = () => setExpanded(!document.body.classList.contains("expanded"));
+    return box;
   }
-  if (!rows.length) {
-    // Most buildings (houses, sheds) are registered whole, without independent units: show the building.
-    const [b] = await run(
-      `SELECT cadnum, functype, flrcount, area, proptype, immaddr
-       FROM read_parquet('${dataUrl(`buildings-${oblast}.parquet`)}') WHERE cadnum = ?`, [building]);
-    if (!b) { select(null); status("Няма сграда или обект с този идентификатор в избраната област."); $("out").innerHTML = ""; return; }
-    select(building);
-    status(`Сградата е вписана без самостоятелни обекти, затова няма и идеални части · ${b.immaddr ?? ""}`);
-    $("out").innerHTML =
-      `<thead><tr><th>Сграда</th><th>Предназначение</th><th>Етажи</th><th>Застроена площ, м²</th><th>Собственост</th><th>Адрес</th></tr></thead>` +
-      `<tbody><tr><td>${esc(b.cadnum)}</td><td>${esc(b.functype)}</td><td class="n">${esc(b.flrcount)}</td><td class="n">${fmt(b.area)}</td><td>${esc(b.proptype)}</td><td>${esc(b.immaddr)}</td></tr></tbody>`;
-    return;
+  onRemove() {}
+}
+map.addControl(new ExpandControl(), "top-right");
+map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
+const relayout = () => setTimeout(() => map.resize(), 0);
+function setExpanded(on) {
+  document.body.classList.toggle("expanded", on);
+  document.querySelector(".expand-btn").textContent = on ? "⤡" : "⤢";
+  relayout();
+}
+$("sb-close").onclick = () => { document.body.classList.add("collapsed"); relayout(); };
+$("sb-open").onclick = () => { document.body.classList.remove("collapsed"); relayout(); };
+// Drag the separator to resize the sidebar; the width is remembered for this browser.
+try { const w = localStorage.getItem("sbw"); if (w) document.documentElement.style.setProperty("--sbw", w); } catch {}
+$("resizer").addEventListener("pointerdown", (e) => {
+  const r = $("resizer"); r.setPointerCapture(e.pointerId); r.classList.add("drag");
+  const move = (ev) => document.documentElement.style.setProperty("--sbw", `${Math.min(Math.max(ev.clientX, 280), innerWidth - 320)}px`);
+  const up = () => {
+    r.classList.remove("drag"); r.removeEventListener("pointermove", move); r.removeEventListener("pointerup", up); relayout();
+    try { localStorage.setItem("sbw", getComputedStyle(document.documentElement).getPropertyValue("--sbw").trim()); } catch {}
+  };
+  r.addEventListener("pointermove", move); r.addEventListener("pointerup", up);
+});
+
+// ---------- Tools.
+let tool = "info";
+const HINTS = {
+  info: "",
+  select: "Влачете правоъгълник — сградите в него отиват в списъка (с Alt — имотите). Клик добавя или маха един обект.",
+  measure: "Кликвайте точки. Двоен клик или Enter затваря многоъгълника; Backspace маха последната точка; Esc изчиства.",
+};
+function setTool(t) {
+  tool = t;
+  for (const b of document.querySelectorAll("#tools button")) b.setAttribute("aria-pressed", String(b.dataset.tool === t));
+  $("tool-hint").textContent = HINTS[t]; $("tool-hint").classList.toggle("on", !!HINTS[t]);
+  map.getCanvas().style.cursor = t === "info" ? "" : "crosshair";
+  if (t === "measure") map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
+  if (t !== "measure") clearMeasure();
+}
+$("tools").addEventListener("click", (e) => { const b = e.target.closest("button[data-tool]"); if (b) setTool(b.dataset.tool); });
+
+for (const id of ["b-fill", "p-fill"]) {
+  map.on("mouseenter", id, () => { if (tool === "info") map.getCanvas().style.cursor = "pointer"; });
+  map.on("mouseleave", id, () => { if (tool === "info") map.getCanvas().style.cursor = ""; });
+}
+// A building wins over the parcel under it.
+function featureAt(point) {
+  const hit = map.queryRenderedFeatures(point, { layers: ["b-fill", "p-fill"].filter((l) => map.getLayer(l)) });
+  const f = hit.find((h) => h.layer.id === "b-fill") ?? hit[0];
+  if (f?.layer.id === "p-fill") parcelInfo.set(f.properties.c, f.properties);
+  return f;
+}
+let afterBox = false;  // the click the browser fires when a box drag ends must not pick the object under the mouse
+map.on("click", (e) => {
+  if (afterBox) { afterBox = false; return; }
+  if (tool === "measure") return addMeasurePoint(e.lngLat);
+  const f = featureAt(e.point);
+  if (!f) return;
+  const add = tool === "select" || e.originalEvent.ctrlKey || e.originalEvent.metaKey || e.originalEvent.shiftKey;
+  if (add) toggleList(f.properties.c).catch(fail);
+  else openInfo(f.properties.c, { at: e.point, fly: false }).catch(fail);
+});
+// On a Mac, Ctrl+click arrives as a right click: treat it as "add" too.
+map.on("contextmenu", (e) => {
+  if (!e.originalEvent.ctrlKey || tool === "measure") return;
+  e.preventDefault();
+  const f = featureAt(e.point);
+  if (f) toggleList(f.properties.c).catch(fail);
+});
+
+// Box select: drag a rectangle; everything visible inside goes into the list.
+const canvas = map.getCanvasContainer();
+canvas.addEventListener("pointerdown", (e) => {
+  if (tool !== "select" || e.button !== 0) return;
+  e.preventDefault(); e.stopPropagation();
+  map.dragPan.disable();
+  const rect = canvas.getBoundingClientRect();
+  const start = [e.clientX - rect.left, e.clientY - rect.top];
+  let end = start;
+  const box = $("box");
+  const draw = () => Object.assign(box.style, { display: "block", left: `${Math.min(start[0], end[0])}px`, top: `${Math.min(start[1], end[1])}px`,
+    width: `${Math.abs(end[0] - start[0])}px`, height: `${Math.abs(end[1] - start[1])}px` });
+  const move = (ev) => { end = [ev.clientX - rect.left, ev.clientY - rect.top]; draw(); };
+  const up = (ev) => {
+    document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up);
+    box.style.display = "none"; map.dragPan.enable();
+    if (Math.abs(end[0] - start[0]) < 5 && Math.abs(end[1] - start[1]) < 5) return;  // a click, handled above
+    afterBox = true;
+    setTimeout(() => (afterBox = false), 300);  // in case no click follows
+    const layer = ev.altKey ? "p-fill" : "b-fill";
+    if (!map.getLayer(layer)) return;
+    const found = map.queryRenderedFeatures([start, end], { layers: [layer] });
+    const ids = [...new Set(found.map((f) => { if (layer === "p-fill") parcelInfo.set(f.properties.c, f.properties); return f.properties.c; }))];
+    addAll(ids).catch(fail);
+  };
+  document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+}, true);
+
+// Measure area: geodesic polygon area on the sphere (same formula as turf.js / Chamberlain & Duquette).
+let mpts = [], mclosed = false;
+const R = 6378137, rad = (d) => (d * Math.PI) / 180;
+function ringArea(pts) {
+  let s = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+    s += rad(x2 - x1) * (2 + Math.sin(rad(y1)) + Math.sin(rad(y2)));
   }
-  select(building);
-  const sum = (k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
-  status(`${rows.length} обекта · ${rows[0].immaddr?.replace(/,\s*(ет|ап)\..*$/, "") ?? ""}`);
-  $("out").innerHTML =
-    `<thead><tr><th>Идентификатор</th><th>Вх.</th><th>Ет.</th><th>№</th><th>Вид</th><th>Площ, м²</th><th>Ид. ч., м²</th><th>Ид. ч., %</th><th>Текст в регистъра</th></tr></thead><tbody>` +
-    rows.map((r) => `<tr><td>${esc(r.cadnum)}</td><td>${esc(r.entrance)}</td><td>${esc(r.flrnum)}</td><td>${esc(r.appnum)}</td><td>${esc(r.apptype)}</td><td class="n">${fmt(r.apparea)}</td><td class="n">${fmt(r.adjpart_sqm)}</td><td class="n">${fmt(r.adjpart_pct, 3)}</td><td>${esc(r.adjpart)}</td></tr>`).join("") +
-    `</tbody><tfoot><tr><td colspan="5">Общо</td><td class="n">${fmt(sum("apparea"))}</td><td class="n">${fmt(sum("adjpart_sqm"))}</td><td class="n">${fmt(sum("adjpart_pct"), 3)}</td><td></td></tr></tfoot>`;
+  return Math.abs((s * R * R) / 2);
+}
+function ringLength(pts, closed) {
+  let s = 0;
+  const seg = closed ? pts.length : pts.length - 1;
+  for (let i = 0; i < seg; i++) s += new maplibregl.LngLat(...pts[i]).distanceTo(new maplibregl.LngLat(...pts[(i + 1) % pts.length]));
+  return s;
+}
+function drawMeasure() {
+  const feats = mpts.map((p) => ({ type: "Feature", geometry: { type: "Point", coordinates: p } }));
+  if (mpts.length >= 2) feats.push({ type: "Feature", geometry: mclosed || mpts.length >= 3
+    ? { type: "Polygon", coordinates: [[...mpts, mpts[0]]] } : { type: "LineString", coordinates: mpts } });
+  map.getSource("measure").setData({ type: "FeatureCollection", features: feats });
+  const out = $("measure-out");
+  if (mpts.length < 2) { out.classList.remove("on"); return; }
+  const len = ringLength(mpts, mpts.length >= 3);
+  const area = mpts.length >= 3 ? ringArea(mpts) : 0;
+  out.innerHTML = (area ? `Площ <b>${fmt(area, area < 100 ? 1 : 0)} м²</b> · ${fmt(area / 1000, 3)} дка · ` : "") +
+    `${mpts.length >= 3 ? "Периметър" : "Дължина"} ${fmt(len, 1)} м${mclosed ? "" : " · двоен клик затваря"}`;
+  out.classList.add("on");
+}
+function addMeasurePoint(ll) {
+  if (mclosed) { mpts = []; mclosed = false; }
+  mpts.push([ll.lng, ll.lat]); drawMeasure();
+}
+function clearMeasure() { mpts = []; mclosed = false; if (map.getSource("measure")) drawMeasure(); }
+map.on("dblclick", (e) => {
+  if (tool !== "measure") return;
+  e.preventDefault();
+  // the double click already added two points at the same spot; drop the duplicate and close
+  if (mpts.length > 1) mpts.pop();
+  if (mpts.length >= 3) { mclosed = true; drawMeasure(); }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input, select, textarea")) return;
+  if (tool === "measure" && e.key === "Enter" && mpts.length >= 3) { mclosed = true; drawMeasure(); return; }
+  if (tool === "measure" && e.key === "Backspace" && mpts.length && !mclosed) { mpts.pop(); drawMeasure(); return; }
+  if (e.key === "Escape") {
+    if (tool === "measure" && mpts.length) { clearMeasure(); return; }
+    if (tool !== "info") { setTool("info"); return; }
+    if (document.body.classList.contains("expanded")) setExpanded(false);
+  }
+});
+
+// ---------- DuckDB over the Parquet files (HTTP range requests, no server).
+const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+let worker, db, con;
+async function startDb() {
+  worker?.terminate();
+  worker = new Worker(URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" })));
+  db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), worker);
+  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  con = await db.connect();
+}
+await startDb();
+status("Готово.");
+
+// One query at a time: overlapping queries on one DuckDB-wasm connection can crash it
+// ("memory access out of bounds"). After a crash, start DuckDB afresh and retry once.
+let queue = Promise.resolve();
+async function query(sql, args) {
+  const stmt = await con.prepare(sql);
+  try { return (await stmt.query(...args)).toArray().map((r) => r.toJSON()); }
+  finally { await stmt.close().catch(() => {}); }
+}
+function run(sql, args = []) {
+  const job = queue.then(async () => {
+    try { return await query(sql, args); }
+    catch (e) {
+      if (!/memory access out of bounds|RuntimeError|unreachable/i.test(String(e?.message ?? e))) throw e;
+      console.warn("DuckDB crashed, restarting:", e);
+      await startDb();
+      return query(sql, args);
+    }
+  });
+  queue = job.catch(() => {});
+  return job;
 }
 
+// ---------- Highlight on the map: the open window's object plus everything in the list.
+const parcelInfo = new Map();  // parcel id -> properties from the map tile
+const list = new Map();        // id -> label, in the order added
+let focus = null;
+
+function paint() {
+  const ids = [...list.keys(), ...(focus ? [focus] : [])];
+  const bs = [...new Set(ids.filter((i) => kindOf(i) !== "parcel").map(buildingOf))];
+  const ps = ids.filter((i) => kindOf(i) === "parcel");
+  const inList = (l) => (l.length ? ["in", ["get", "c"], ["literal", l]] : nothing);
+  if (map.getLayer("b-sel")) { map.setFilter("b-sel", inList(bs)); map.setFilter("b-sel-line", inList(bs)); }
+  if (map.getLayer("p-sel")) { map.setFilter("p-sel", inList(ps)); map.setFilter("p-sel-line", inList(ps)); }
+  for (const tr of document.querySelectorAll("#out tr[data-cad]")) tr.classList.toggle("picked", list.has(tr.dataset.cad));
+  for (const a of document.querySelectorAll(".win .add[data-cad]")) {
+    const on = list.has(a.dataset.cad);
+    a.classList.toggle("done", on); a.textContent = on ? "✓ В списъка с обекти" : "Добави в списък с обекти";
+  }
+}
+
+async function flyTo(cad) {
+  const o = oblastOf(cad);
+  if (!o) return;
+  const target = kindOf(cad) === "unit" ? buildingOf(cad) : cad;
+  const [p] = await run(`SELECT avg(lon) lon, avg(lat) lat FROM read_parquet(${file("search", o)}) WHERE building = ? OR starts_with(building, ? || '.')`, [target, target]);
+  if (p?.lon != null) map.flyTo({ center: [p.lon, p.lat], zoom: kindOf(cad) === "parcel" ? 17.5 : 18 });
+}
+
+// ---------- Floating windows.
+let winZ = 10, winN = 0;
+function openWindow(key, title, html, at) {
+  const stage = $("stage");
+  let w = stage.querySelector(`.win[data-key="${CSS.escape(key)}"]`);
+  if (!w) {
+    w = document.createElement("div");
+    w.className = "win"; w.dataset.key = key;
+    w.innerHTML = `<header><b></b><button type="button" aria-label="Затвори">×</button></header><div class="body"></div>`;
+    stage.append(w);
+    const off = (winN++ % 6) * 28;
+    const x = at ? Math.min(at.x + 16, stage.clientWidth - 380) : 60 + off;
+    const y = at ? Math.min(Math.max(at.y - 40, 50), stage.clientHeight - 200) : 50 + off;
+    w.style.left = `${Math.max(10, x)}px`; w.style.top = `${Math.max(10, y)}px`;
+    w.querySelector("header button").onclick = () => { w.remove(); if (focus === key || focus === buildingOf(key)) { focus = null; paint(); } };
+    dragWindow(w);
+    w.addEventListener("pointerdown", () => (w.style.zIndex = ++winZ));
+  }
+  w.style.zIndex = ++winZ;
+  w.querySelector("header b").textContent = title;
+  w.querySelector(".body").innerHTML = html;
+  return w;
+}
+function dragWindow(w) {
+  const head = w.querySelector("header");
+  head.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button")) return;
+    head.setPointerCapture(e.pointerId);
+    const sx = e.clientX - w.offsetLeft, sy = e.clientY - w.offsetTop, stage = $("stage");
+    const move = (ev) => {
+      w.style.left = `${Math.min(Math.max(ev.clientX - sx, 0), stage.clientWidth - 80)}px`;
+      w.style.top = `${Math.min(Math.max(ev.clientY - sy, 0), stage.clientHeight - 40)}px`;
+    };
+    const up = () => { head.removeEventListener("pointermove", move); head.removeEventListener("pointerup", up); };
+    head.addEventListener("pointermove", move); head.addEventListener("pointerup", up);
+  });
+}
+// Buttons inside windows: 🔍 fly, i open information, + add to the list.
+$("stage").addEventListener("click", (e) => {
+  const b = e.target.closest(".win [data-act]");
+  if (!b) return;
+  const cad = b.dataset.cad;
+  if (b.dataset.act === "zoom") flyTo(cad).catch(fail);
+  if (b.dataset.act === "info") { e.preventDefault(); openInfo(cad, { fly: b.tagName === "A" }).catch(fail); }
+  if (b.dataset.act === "add" && !list.has(cad)) toggleList(cad).catch(fail);
+});
+$("stage").addEventListener("change", (e) => {
+  const s = e.target.closest("select[data-floor]");
+  if (!s) return;
+  for (const it of s.closest(".body").querySelectorAll(".item[data-floor]")) it.hidden = s.value !== "" && it.dataset.floor !== s.value;
+});
+const acts = (cad) => `<span class="acts"><button type="button" data-act="zoom" data-cad="${esc(cad)}" title="Покажи на картата">🔍</button>` +
+  `<button type="button" data-act="info" data-cad="${esc(cad)}" title="Информация">i</button>` +
+  `<button type="button" data-act="add" data-cad="${esc(cad)}" title="Добави в списъка">+</button></span>`;
+const addLink = (cad) => `<span class="add" data-act="add" data-cad="${esc(cad)}">Добави в списък с обекти</span>`;
+const order = (v) => (v ? `<h4>Основна заповед</h4><p>Заповед за одобрение на КККР ${esc(v)}</p>` : "");
+// Съседи: parcels/buildings whose outlines touch (neighbours-<OBL>.parquet, where built).
+async function neighboursHtml(cad, o) {
+  if (!meta.oblasts.find((x) => x.code === o)?.neighbours) return "";
+  const [r] = await run(`SELECT neighbours FROM read_parquet(${file("neighbours", o)}) WHERE cadnum = ?`, [cad]);
+  const near = r?.neighbours ? [...r.neighbours] : [];
+  if (!near.length) return "";
+  return `<h4>Съседи</h4><p>${near.map((n) => `<a href="#" data-act="info" data-cad="${esc(n)}">${esc(n)}</a>`).join(", ")}</p>`;
+}
+const place = (cad, addr) => {
+  const o = meta.oblasts.find((x) => x.code === oblastOf(cad));
+  return `${o ? "област " + esc(o.name) + ", " : ""}${esc(addr ?? "")}`;
+};
+
+async function openInfo(cad, { at = null, fly = true } = {}) {
+  cad = cad.trim();
+  if (!validId(cad) || !kindOf(cad)) { status("Идентификаторът е като 07079.602.802 (имот), 07079.602.802.1 (сграда) или 07079.602.802.1.5 (обект)."); return; }
+  const o = oblastOf(cad);
+  if (!o) { status("Няма данни за това населено място в огледалото (още)."); return; }
+  history.replaceState(null, "", `?cadnum=${cad}`);
+  focus = kindOf(cad) === "unit" ? buildingOf(cad) : cad; paint();
+  if (fly) flyTo(cad).catch(() => {});
+  const k = kindOf(cad);
+  if (k === "parcel") return parcelWindow(cad, o, at);
+  if (k === "building") return buildingWindow(cad, o, at);
+  return unitWindow(cad, o, at);
+}
+
+async function parcelWindow(cad, o, at) {
+  const p = parcelInfo.get(cad);
+  const rows = await run(
+    `SELECT s.building, s.address, s.units, b.functype, b.flrcount, b.area
+     FROM read_parquet(${file("search", o)}) s LEFT JOIN read_parquet(${file("buildings", o)}) b ON b.cadnum = s.building
+     WHERE starts_with(s.building, ? || '.') ORDER BY s.building`, [cad]);
+  const desc = p ? [p.pr && `вид собств. ${esc(p.pr)}`, p.pt && `вид територия ${esc(p.pt)}`, p.ut && `НТП ${esc(p.ut)}`,
+    `площ ${Number(p.a).toLocaleString("bg-BG")} кв. м`, p.pl && `местност ${esc(p.pl)}`].filter(Boolean).join(", ")
+    : "Щракнете имота на картата за вида и площта му.";
+  openWindow(cad, `Информация: ПИ ${cad}`,
+    `<h3>ПИ ${esc(cad)} ${place(cad, rows[0]?.address?.split(",")[0] ?? "")}</h3>${addLink(cad)}<p>${desc}</p>${order(p?.v)}${await neighboursHtml(cad, o)}` +
+    `<h4>Сгради в имота (${rows.length})</h4>` +
+    (rows.map((r) => `<div class="item"><div class="t"><b>Сграда ${esc(r.building)}</b> ${esc(r.functype ?? "")}` +
+      `${r.flrcount ? ", " + r.flrcount + " ет." : ""}${r.units ? ", " + r.units + " обекта" : ""}</div>${acts(r.building)}</div>`).join("") || "<p>Няма сгради.</p>"), at);
+  paint();
+}
+
+async function buildingWindow(cad, o, at) {
+  const [[b], units] = await Promise.all([
+    run(`SELECT cadnum, functype, flrcount, appcount, area, proptype, immaddr, validate FROM read_parquet(${file("buildings", o)}) WHERE cadnum = ?`, [cad]),
+    run(`SELECT cadnum, entrance, flrnum, appnum, apptype, immaddr FROM read_parquet(${file("units", o)}) WHERE building = ? ORDER BY cadapp`, [cad]),
+  ]);
+  if (!b && !units.length) { status("Няма сграда с този идентификатор."); return; }
+  const addr = shortAddr(units[0]?.immaddr) || b?.immaddr;
+  const desc = [b?.proptype && `вид собств. ${esc(b.proptype)}`, b?.functype && `функц. предн. ${esc(b.functype)}`,
+    b?.flrcount && `брой етажи ${b.flrcount}`, `брой самост. обекти ${units.length}`, b?.area && `застроена площ ${fmt(b.area, 0)} кв. м`]
+    .filter(Boolean).join(", ");
+  const floors = [...new Set(units.map((u) => u.flrnum ?? ""))].sort((a, b) => Number(a) - Number(b) || String(a).localeCompare(b));
+  openWindow(cad, `Информация: Сграда ${cad}`,
+    `<h3>Сграда ${esc(cad)} ${place(cad, addr)}</h3>${addLink(cad)}<p>${desc}</p>${order(b?.validate)}${await neighboursHtml(cad, o)}` +
+    `<h4>Имот</h4><div class="item"><div class="t"><b>ПИ ${esc(parcelOf(cad))}</b></div>${acts(parcelOf(cad))}</div>` +
+    (units.length ? `<h4>Етаж</h4><select data-floor><option value="">всички (${units.length})</option>` +
+      floors.map((f) => `<option value="${esc(f)}">${esc(f || "—")}</option>`).join("") + `</select><h4>СОС</h4>` +
+      units.map((u) => `<div class="item" data-floor="${esc(u.flrnum ?? "")}"><div class="t"><b>СОС ${esc(u.cadnum)}</b> ${esc(u.immaddr ?? "")}</div>${acts(u.cadnum)}</div>`).join("")
+      : "<p>Сградата е вписана без самостоятелни обекти, затова няма и идеални части.</p>"), at);
+  paint();
+}
+
+async function unitWindow(cad, o, at) {
+  const [u] = await run(
+    `SELECT u.*, b.validate AS bvalidate FROM read_parquet(${file("units", o)}) u
+     LEFT JOIN read_parquet(${file("buildings", o)}) b ON b.cadnum = u.building WHERE u.cadnum = ?`, [cad]);
+  if (!u) { status("Няма обект с този идентификатор."); return; }
+  const desc = [u.proptype && `вид собств. ${esc(u.proptype)}`, u.apptype && `тип ${esc(u.apptype)}`,
+    u.entrance && `вход ${esc(u.entrance)}`, u.flrnum && `етаж ${esc(u.flrnum)}`,
+    u.apparea != null && `площ по документ ${fmt(u.apparea)} кв. м`, u.adjpart && esc(u.adjpart)].filter(Boolean).join(", ");
+  const parsed = u.adjpart_pct != null || u.adjpart_sqm != null
+    ? `<p>Идеални части: ${u.adjpart_pct != null ? fmt(u.adjpart_pct, 3) + " %" : ""}${u.adjpart_pct != null && u.adjpart_sqm != null ? " · " : ""}${u.adjpart_sqm != null ? fmt(u.adjpart_sqm) + " кв. м" : ""}</p>` : "";
+  openWindow(cad, `Информация: СОС ${cad}`,
+    `<h3>СОС ${esc(cad)} ${place(cad, u.immaddr)}</h3>${addLink(cad)}<p>${desc}</p>${parsed}${order(u.validate ?? u.bvalidate)}` +
+    `<h4>Сграда</h4><div class="item"><div class="t"><b>Сграда ${esc(u.building)}</b></div>${acts(u.building)}</div>`, at);
+  paint();
+}
+
+// ---------- "Списък с обекти": parcels, buildings and units, exportable.
+async function labelFor(cad) {
+  const o = oblastOf(cad);
+  if (o && kindOf(cad) !== "parcel") {
+    const [r] = await run(`SELECT address FROM read_parquet(${file("search", o)}) WHERE building = ?`, [buildingOf(cad)]);
+    return r?.address ?? "";
+  }
+  return parcelInfo.get(cad)?.pl ?? "";
+}
+async function toggleList(cad) {
+  if (!validId(cad) || !kindOf(cad)) return;
+  if (list.has(cad)) list.delete(cad); else list.set(cad, await labelFor(cad));
+  renderList(); paint();
+}
+async function addAll(ids) {
+  let fresh = ids.filter((i) => validId(i) && !list.has(i));
+  const cut = fresh.length > MAX_BOX;
+  if (cut) fresh = fresh.slice(0, MAX_BOX);
+  for (const [o, group] of groupByOblast(fresh)) {  // one query per oblast for the labels
+    const bs = group.filter((i) => kindOf(i) !== "parcel");
+    const rows = bs.length ? await run(`SELECT building, address FROM read_parquet(${file("search", o)}) WHERE building IN ${await idTable(bs)}`) : [];
+    const by = new Map(rows.map((r) => [r.building, r.address]));
+    for (const i of group) list.set(i, kindOf(i) === "parcel" ? parcelInfo.get(i)?.pl ?? "" : by.get(i) ?? "");
+  }
+  renderList(); paint();
+  status(fresh.length ? `Добавени ${fresh.length} обекта в списъка.${cut ? ` Правоъгълникът съдържа повече — добавят се най-много ${MAX_BOX} наведнъж; приближете картата.` : ""}`
+    : "Няма нови обекти в правоъгълника.");
+}
+function renderList() {
+  $("list-count").textContent = list.size ? `(${list.size})` : "";
+  const shown = [...list].slice(0, MAX_LIST_ROWS);
+  $("list").innerHTML = list.size
+    ? shown.map(([cad, label]) => `<div class="item" style="background:var(--hit);color:var(--fg)"><div class="t"><b>${KIND_NAME[kindOf(cad)]} ${esc(cad)}</b> ${esc(label)}</div>` +
+        `<span class="acts"><button type="button" data-l="info" data-cad="${esc(cad)}" title="Информация">i</button>` +
+        `<button type="button" data-l="del" data-cad="${esc(cad)}" title="Махни">×</button></span></div>`).join("") +
+      (list.size > shown.length ? `<p id="list-empty">… и още ${list.size - shown.length}; експортът съдържа всички.</p>` : "")
+    : `<p id="list-empty">Няма добавени обекти.</p>`;
+}
+$("list").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-l]");
+  if (!b) return;
+  if (b.dataset.l === "info") openInfo(b.dataset.cad).catch(fail);
+  else { list.delete(b.dataset.cad); renderList(); paint(); }
+});
+
+function groupByOblast(ids) {
+  const g = new Map();
+  for (const id of ids) {
+    const o = oblastOf(id);
+    if (!o) continue;
+    if (!g.has(o)) g.set(o, []);
+    g.get(o).push(id);
+  }
+  return g;
+}
+
+// Export: units of listed buildings and of buildings on listed parcels, plus listed units themselves;
+// a building without units is one row; a parcel without buildings is one row.
+async function exportRows() {
+  const out = [];
+  for (const [o, ids] of groupByOblast([...list.keys()])) {
+    const parcels = ids.filter((i) => kindOf(i) === "parcel");
+    const buildings = ids.filter((i) => kindOf(i) === "building");
+    const units = ids.filter((i) => kindOf(i) === "unit");
+    const parcelExpr = "array_to_string(string_split(b.cadnum, '.')[1:3], '.')";
+    out.push(...await run(
+      `SELECT ${parcelExpr} AS "Имот", b.cadnum AS "Сграда", u.cadnum AS "Обект",
+              u.entrance AS "Вход", u.flrnum AS "Етаж", u.appnum AS "№", coalesce(u.apptype, b.functype) AS "Вид",
+              u.apparea AS "Площ на обекта, м²", u.adjpart_sqm AS "Ид. ч., м²", u.adjpart_pct AS "Ид. ч., %",
+              u.adjpart AS "Ид. ч. (текст)", b.functype AS "Предназначение на сградата", b.flrcount AS "Етажи",
+              b.area AS "Застроена площ, м²", coalesce(u.immaddr, b.immaddr) AS "Адрес", b.source_date::VARCHAR AS "Данни към"
+       FROM read_parquet(${file("buildings", o)}) b LEFT JOIN read_parquet(${file("units", o)}) u ON u.building = b.cadnum
+       WHERE b.cadnum IN ${await idTable(buildings)} OR ${parcelExpr} IN ${await idTable(parcels)} OR u.cadnum IN ${await idTable(units)}
+       ORDER BY b.cadnum, u.cadapp`));
+    for (const p of parcels) {
+      if (!out.some((r) => r["Имот"] === p)) {
+        const i = parcelInfo.get(p);
+        out.push({ "Имот": p, "Вид": i ? `${i.pt}${i.ut ? ", " + i.ut : ""}` : "имот без сгради", "Адрес": i?.pl ?? "" });
+      }
+    }
+  }
+  return out;
+}
+
+const stamp = () => new Date().toISOString().slice(0, 10);
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+async function exportCsv() {
+  status("Подготовка…");
+  const rows = await exportRows();
+  if (!rows.length) { status("Списъкът с обекти е празен."); return; }
+  const cols = [...new Set(rows.flatMap(Object.keys))];
+  const cell = (v) => (v == null ? "" : /[",\n;]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+  const csv = [cols.map(cell).join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(","))].join("\r\n");
+  download(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }), `kais-${stamp()}.csv`);
+  status(`Изнесени ${rows.length} реда (CSV).`);
+}
+async function exportXlsx() {
+  status("Подготовка…");
+  if (!window.XLSX) await new Promise((ok, no) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"; s.onload = ok; s.onerror = no;
+    document.head.append(s);
+  });
+  const rows = await exportRows();
+  if (!rows.length) { status("Списъкът с обекти е празен."); return; }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Обекти");
+  XLSX.writeFile(wb, `kais-${stamp()}.xlsx`);
+  status(`Изнесени ${rows.length} реда (Excel).`);
+}
+
+// ---------- Address search: in one oblast, or in all oblasts in the mirror.
 async function showAddress(text) {
   const words = text.toLowerCase().split(/[\s,]+/).filter(Boolean);
   if (!words.length) return;
-  status("Търсене…");
-  const oblast = $("oblast").value;
+  const scope = $("area").value ? [$("area").value] : meta.oblasts.map((o) => o.code);
+  status(scope.length > 1 ? "Търсене в цялата страна…" : "Търсене…");
   const rows = await run(
     `SELECT building, address, blocks, entrances, units, units_with_adjpart
-     FROM read_parquet('${dataUrl(`search-${oblast}.parquet`)}')
-     WHERE ${words.map(() => "q LIKE '%' || ? || '%'").join(" AND ")} ORDER BY address LIMIT 100`, words);
-  status(rows.length ? `${rows.length}${rows.length === 100 ? "+" : ""} сгради. Изберете ред.` : "Няма съвпадения.");
+     FROM read_parquet(${files("search", scope)})
+     WHERE ${words.map(() => "q LIKE '%' || ? || '%'").join(" AND ")} ORDER BY address LIMIT 200`, words);
+  status(rows.length ? `${rows.length}${rows.length === 200 ? "+" : ""} сгради. Клик отваря; Ctrl/⌘/Shift + клик добавя към списъка.` : "Няма съвпадения.");
   $("out").innerHTML =
     `<thead><tr><th>Сграда</th><th>Адрес</th><th>Бл.</th><th>Вх.</th><th>Обекти</th><th>С ид. ч.</th></tr></thead><tbody>` +
     rows.map((r) => `<tr class="click" data-cad="${esc(r.building)}"><td>${esc(r.building)}</td><td>${esc(r.address)}</td><td>${esc(r.blocks)}</td><td>${esc(r.entrances)}</td><td class="n">${r.units}</td><td class="n">${r.units_with_adjpart}</td></tr>`).join("") + `</tbody>`;
+  paint();
 }
 
 $("out").addEventListener("click", (e) => {
   const tr = e.target.closest("tr.click");
-  if (tr) { $("cadnum").value = tr.dataset.cad; showCadnum(tr.dataset.cad); }
+  if (!tr) return;
+  if (e.ctrlKey || e.metaKey || e.shiftKey) toggleList(tr.dataset.cad).catch(fail);
+  else openInfo(tr.dataset.cad).catch(fail);
 });
-$("f-cad").addEventListener("submit", (e) => { e.preventDefault(); showCadnum($("cadnum").value).catch((x) => status(x.message)); });
-$("f-addr").addEventListener("submit", (e) => { e.preventDefault(); showAddress($("addr").value).catch((x) => status(x.message)); });
-if (params.get("cadnum")) { $("cadnum").value = params.get("cadnum"); showCadnum(params.get("cadnum")).catch((x) => status(x.message)); }
+$("f-cad").addEventListener("submit", (e) => { e.preventDefault(); openInfo($("cadnum").value).catch(fail); });
+$("f-addr").addEventListener("submit", (e) => { e.preventDefault(); showAddress($("addr").value).catch(fail); });
+$("area").addEventListener("change", () => {
+  const o = meta.oblasts.find((x) => x.code === $("area").value);
+  if (o?.center) map.flyTo({ center: o.center, zoom: 10 });
+});
+$("sel-csv").onclick = () => exportCsv().catch(fail);
+$("sel-xlsx").onclick = () => exportXlsx().catch(fail);
+$("sel-clear").onclick = () => { list.clear(); renderList(); paint(); };
+
+const params = new URLSearchParams(location.search);
+if (params.get("cadnum")) {
+  $("cadnum").value = params.get("cadnum");
+  styleReady.then(() => openInfo(params.get("cadnum"))).catch(fail);  // the map may have loaded long before DuckDB
+}
 </script>
 </body>
 </html>

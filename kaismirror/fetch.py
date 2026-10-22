@@ -25,7 +25,7 @@ from threading import Event, Lock
 from .ekatte import USER_AGENT, Settlement
 
 BASE = "https://kais.cadastre.bg/bg/OpenData/Download?path="
-FILES = {"buildings": "сгради.zip", "units": "самостоятелни обекти.zip"}
+FILES = {"buildings": "сгради.zip", "units": "самостоятелни обекти.zip", "parcels": "поземлени имоти.zip"}
 
 
 class Forbidden(RuntimeError):
