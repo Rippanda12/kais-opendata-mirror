@@ -1,0 +1,96 @@
+name: refresh
+
+# Monthly: download the KAIS open data for the listed oblasts, convert to Parquet,
+# publish a release (data-YYYY-MM-DD) and redeploy the query page on GitHub Pages.
+on:
+  schedule:
+    - cron: "0 3 25 * *"  # KAIS re-exports around the 20th
+  workflow_dispatch:
+    inputs:
+      oblasts:
+        description: "Oblast codes (EKATTE), space separated"
+        default: "BGS"
+      skip_fetch:
+        description: "Only redeploy Pages from the latest release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+env:
+  OBLASTS: ${{ inputs.oblasts || vars.OBLASTS || 'BGS' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[test]" && pytest -q tests
+
+      - name: Month key
+        id: month
+        run: echo "key=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      # Raw zips are cached per month, so a run stopped by KAIS's rate limit resumes on re-run.
+      - uses: actions/cache@v4
+        if: ${{ !inputs.skip_fetch }}
+        with:
+          path: data/raw
+          key: raw-${{ steps.month.outputs.key }}-${{ github.run_id }}
+          restore-keys: raw-${{ steps.month.outputs.key }}-
+
+      - name: Fetch
+        if: ${{ !inputs.skip_fetch }}
+        run: python -m kaismirror fetch $OBLASTS
+
+      - name: Convert
+        if: ${{ !inputs.skip_fetch }}
+        run: python -m kaismirror convert $OBLASTS
+
+      - name: Latest release instead
+        if: ${{ inputs.skip_fetch }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: mkdir -p data/out && gh release download --dir data/out --pattern '*.parquet'
+
+      - name: Release
+        if: ${{ !inputs.skip_fetch }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          date=$(python -c "import duckdb,glob; print(duckdb.sql(\"select max(source_date) from read_parquet('data/out/units-*.parquet')\").fetchall()[0][0])")
+          tag="data-$date"
+          for o in $OBLASTS; do cp "data/raw/$o/manifest.json" "data/out/manifest-$o.json"; done
+          notes="KAIS open data as of $date: buildings and independent units for $OBLASTS. Source: АГКК / kais.cadastre.bg/bg/OpenData."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" data/out/*.parquet data/out/manifest-*.json --clobber
+          else
+            gh release create "$tag" data/out/*.parquet data/out/manifest-*.json --title "$tag" --notes "$notes" --latest
+          fi
+
+      - name: Site
+        run: python -m kaismirror site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: data/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

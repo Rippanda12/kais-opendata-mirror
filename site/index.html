@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Кадастър: сгради и обекти</title>
+<meta name="description" content="Неофициално огледало на отворените данни на АГКК (КАИС): сгради и самостоятелни обекти с площи и идеални части.">
+<style>
+:root { --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6a64; --line:#e3e0d8; --accent:#2f6b4f; --hit:#eef5f0; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#161715; --fg:#ecebe6; --muted:#9a998f; --line:#2c2e2a; --accent:#7fc4a0; --hit:#1f2a24; } }
+:root[data-theme="dark"] { --bg:#161715; --fg:#ecebe6; --muted:#9a998f; --line:#2c2e2a; --accent:#7fc4a0; --hit:#1f2a24; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width:1100px; margin:0 auto; padding:24px 16px 64px; }
+h1 { font-size:22px; margin:0 0 4px; }
+p.lead { color:var(--muted); margin:0 0 20px; }
+form { display:grid; grid-template-columns: 140px 1fr auto; gap:8px; margin-bottom:10px; }
+select, input, button { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:transparent; color:inherit; min-width:0; }
+button { background:var(--accent); color:var(--bg); border-color:var(--accent); cursor:pointer; }
+#status { color:var(--muted); min-height:1.4em; margin:8px 0; }
+.wrap { overflow-x:auto; }
+table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { font-weight:600; font-size:13px; color:var(--muted); }
+td.n { text-align:right; white-space:nowrap; }
+tr.click { cursor:pointer; } tr.click:hover { background:var(--hit); }
+tfoot td { font-weight:600; }
+footer { margin-top:32px; color:var(--muted); font-size:13px; }
+a { color:var(--accent); }
+@media (max-width:640px) { form { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Сгради и самостоятелни обекти</h1>
+  <p class="lead">Отворени данни на АГКК (КАИС), неофициално огледало. Търсене по кадастрален идентификатор или по адрес.</p>
+
+  <form id="f-cad">
+    <select id="oblast" aria-label="Област"></select>
+    <input id="cadnum" placeholder="07079.602.802.1 — сграда или 07079.602.802.1.5 — обект" autocomplete="off">
+    <button>Покажи</button>
+  </form>
+  <form id="f-addr">
+    <span></span>
+    <input id="addr" placeholder="Адрес: напр. изгрев бл. 35 вх. 2" autocomplete="off">
+    <button>Търси</button>
+  </form>
+
+  <div id="status">Зареждане…</div>
+  <div class="wrap"><table id="out"></table></div>
+
+  <footer>
+    Източник: <a href="https://kais.cadastre.bg/bg/OpenData">Агенция по геодезия, картография и кадастър — Отворени данни</a>.
+    Данни към <span id="asof">—</span>. Без данни за собственост. Неофициално, без гаранция за пълнота и точност.
+    <a href="https://github.com/Rippanda12/kais-opendata-mirror">Код и файлове</a>.
+  </footer>
+</main>
+
+<script type="module">
+import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm";
+
+const $ = (id) => document.getElementById(id);
+const status = (t) => ($("status").textContent = t);
+const dataUrl = (name) => new URL(`data/${name}`, location.href).href;
+
+const meta = await fetch("data/meta.json").then((r) => r.json());
+for (const o of meta.oblasts) $("oblast").add(new Option(o.name, o.code));
+$("asof").textContent = meta.source_date;
+
+const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+const worker = new Worker(URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" })));
+const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), worker);
+await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+const con = await db.connect();
+status("Готово.");
+
+const params = new URLSearchParams(location.search);
+if (params.get("oblast")) $("oblast").value = params.get("oblast");
+
+async function run(sql, args) {
+  const stmt = await con.prepare(sql);
+  try { return (await stmt.query(...args)).toArray().map((r) => r.toJSON()); }
+  finally { await stmt.close(); }
+}
+
+const fmt = (v, d = 2) => (v == null ? "" : Number(v).toLocaleString("bg-BG", { minimumFractionDigits: d, maximumFractionDigits: d }));
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+async function showCadnum(cad) {
+  cad = cad.trim();
+  if (!/^\d{5}(\.\d+){3,4}$/.test(cad)) { status("Идентификаторът е като 07079.602.802.1 (сграда) или 07079.602.802.1.5 (обект)."); return; }
+  const oblast = $("oblast").value;
+  history.replaceState(null, "", `?oblast=${oblast}&cadnum=${cad}`);
+  status("Търсене…");
+  const col = cad.split(".").length === 4 ? "building" : "cadnum";
+  const rows = await run(
+    `SELECT cadnum, entrance, flrnum, appnum, apptype, apparea, adjpart_sqm, adjpart_pct, adjpart, immaddr
+     FROM read_parquet('${dataUrl(`units-${oblast}.parquet`)}') WHERE ${col} = ? ORDER BY cadapp`, [cad]);
+  if (!rows.length) { status("Няма самостоятелни обекти с този идентификатор в избраната област."); $("out").innerHTML = ""; return; }
+  const sum = (k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+  status(`${rows.length} обекта · ${rows[0].immaddr?.replace(/,\s*(ет|ап)\..*$/, "") ?? ""}`);
+  $("out").innerHTML =
+    `<thead><tr><th>Идентификатор</th><th>Вх.</th><th>Ет.</th><th>№</th><th>Вид</th><th>Площ, м²</th><th>Ид. ч., м²</th><th>Ид. ч., %</th><th>Текст в регистъра</th></tr></thead><tbody>` +
+    rows.map((r) => `<tr><td>${esc(r.cadnum)}</td><td>${esc(r.entrance)}</td><td>${esc(r.flrnum)}</td><td>${esc(r.appnum)}</td><td>${esc(r.apptype)}</td><td class="n">${fmt(r.apparea)}</td><td class="n">${fmt(r.adjpart_sqm)}</td><td class="n">${fmt(r.adjpart_pct, 3)}</td><td>${esc(r.adjpart)}</td></tr>`).join("") +
+    `</tbody><tfoot><tr><td colspan="5">Общо</td><td class="n">${fmt(sum("apparea"))}</td><td class="n">${fmt(sum("adjpart_sqm"))}</td><td class="n">${fmt(sum("adjpart_pct"), 3)}</td><td></td></tr></tfoot>`;
+}
+
+async function showAddress(text) {
+  const words = text.toLowerCase().split(/[\s,]+/).filter(Boolean);
+  if (!words.length) return;
+  status("Търсене…");
+  const oblast = $("oblast").value;
+  const rows = await run(
+    `SELECT building, address, blocks, entrances, units, units_with_adjpart
+     FROM read_parquet('${dataUrl(`search-${oblast}.parquet`)}')
+     WHERE ${words.map(() => "q LIKE '%' || ? || '%'").join(" AND ")} ORDER BY address LIMIT 100`, words);
+  status(rows.length ? `${rows.length}${rows.length === 100 ? "+" : ""} сгради. Изберете ред.` : "Няма съвпадения.");
+  $("out").innerHTML =
+    `<thead><tr><th>Сграда</th><th>Адрес</th><th>Бл.</th><th>Вх.</th><th>Обекти</th><th>С ид. ч.</th></tr></thead><tbody>` +
+    rows.map((r) => `<tr class="click" data-cad="${esc(r.building)}"><td>${esc(r.building)}</td><td>${esc(r.address)}</td><td>${esc(r.blocks)}</td><td>${esc(r.entrances)}</td><td class="n">${r.units}</td><td class="n">${r.units_with_adjpart}</td></tr>`).join("") + `</tbody>`;
+}
+
+$("out").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr.click");
+  if (tr) { $("cadnum").value = tr.dataset.cad; showCadnum(tr.dataset.cad); }
+});
+$("f-cad").addEventListener("submit", (e) => { e.preventDefault(); showCadnum($("cadnum").value).catch((x) => status(x.message)); });
+$("f-addr").addEventListener("submit", (e) => { e.preventDefault(); showAddress($("addr").value).catch((x) => status(x.message)); });
+if (params.get("cadnum")) { $("cadnum").value = params.get("cadnum"); showCadnum(params.get("cadnum")).catch((x) => status(x.message)); }
+</script>
+</body>
+</html>

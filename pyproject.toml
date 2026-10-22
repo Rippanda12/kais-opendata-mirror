@@ -1,0 +1,13 @@
+[project]
+name = "kaismirror"
+version = "0.1.0"
+description = "Mirror of the Bulgarian cadastre (АГКК / КАИС) open data: buildings and independent units as Parquet"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["duckdb>=1.1", "pyarrow>=15"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.setuptools]
+packages = ["kaismirror"]
