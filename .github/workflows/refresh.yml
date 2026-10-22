@@ -58,11 +58,22 @@ jobs:
         if: ${{ !inputs.skip_fetch }}
         run: python -m kaismirror convert $OBLASTS
 
+      - name: Install tippecanoe
+        if: ${{ !inputs.skip_fetch }}
+        run: |
+          sudo apt-get install -y -qq libsqlite3-dev zlib1g-dev
+          git clone -q --depth 1 --branch 2.79.0 https://github.com/felt/tippecanoe.git /tmp/tippecanoe
+          make -s -C /tmp/tippecanoe -j"$(nproc)" && sudo make -s -C /tmp/tippecanoe install
+
+      - name: Map tiles
+        if: ${{ !inputs.skip_fetch }}
+        run: python -m kaismirror tiles $OBLASTS
+
       - name: Latest release instead
         if: ${{ inputs.skip_fetch }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: mkdir -p data/out && gh release download --dir data/out --pattern '*.parquet'
+        run: mkdir -p data/out && gh release download --dir data/out --pattern '*.parquet' --pattern '*.pmtiles'
 
       - name: Release
         if: ${{ !inputs.skip_fetch }}
@@ -74,9 +85,9 @@ jobs:
           for o in $OBLASTS; do cp "data/raw/$o/manifest.json" "data/out/manifest-$o.json"; done
           notes="KAIS open data as of $date: buildings and independent units for $OBLASTS. Source: АГКК / kais.cadastre.bg/bg/OpenData."
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" data/out/*.parquet data/out/manifest-*.json --clobber
+            gh release upload "$tag" data/out/*.parquet data/out/*.pmtiles data/out/manifest-*.json --clobber
           else
-            gh release create "$tag" data/out/*.parquet data/out/manifest-*.json --title "$tag" --notes "$notes" --latest
+            gh release create "$tag" data/out/*.parquet data/out/*.pmtiles data/out/manifest-*.json --title "$tag" --notes "$notes" --latest
           fi
 
       - name: Site

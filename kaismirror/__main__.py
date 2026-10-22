@@ -17,18 +17,25 @@ def main(argv=None) -> int:
 
     s = sub.add_parser("settlements", help="print the settlement folders that will be tried")
     s.add_argument("oblast", nargs="*")
+    s.add_argument("--only", choices=["towns", "villages"])
 
     f = sub.add_parser("fetch", help="download zips")
     f.add_argument("oblast", nargs="+", help="oblast codes, e.g. BGS VAR, or ALL")
     f.add_argument("--raw", type=Path, default=Path("data/raw"))
     f.add_argument("--workers", type=int, default=1)
     f.add_argument("--delay", type=float, default=5.0, help="seconds between requests per worker")
+    f.add_argument("--only", choices=["towns", "villages"], help="towns („гр.“) or the rest; default both")
 
     c = sub.add_parser("convert", help="zips -> Parquet")
     c.add_argument("oblast", nargs="+")
     c.add_argument("--raw", type=Path, default=Path("data/raw"))
     c.add_argument("--out", type=Path, default=Path("data/out"))
-    c.add_argument("--geometry", action="store_true", help="add bbox centre cx, cy (native CRS)")
+    c.add_argument("--geometry", action="store_true", help="also give units lon/lat (buildings always have them)")
+
+    m = sub.add_parser("tiles", help="building outlines -> PMTiles (needs tippecanoe)")
+    m.add_argument("oblast", nargs="+")
+    m.add_argument("--raw", type=Path, default=Path("data/raw"))
+    m.add_argument("--out", type=Path, default=Path("data/out"))
 
     w = sub.add_parser("site", help="assemble the static site (page + Parquet + meta.json)")
     w.add_argument("--out", type=Path, default=Path("data/out"))
@@ -43,13 +50,13 @@ def main(argv=None) -> int:
 
     a = p.parse_args(argv)
     if a.cmd == "settlements":
-        for st in ekatte.settlements(a.ekatte_year, a.oblast or None):
+        for st in ekatte.settlements(a.ekatte_year, a.oblast or None, a.only):
             print(st.folder)
     elif a.cmd == "fetch":
         from .fetch import Forbidden, fetch
         obl = None if a.oblast == ["ALL"] else a.oblast
         try:
-            man = fetch(ekatte.settlements(a.ekatte_year, obl), a.raw, workers=a.workers, delay=a.delay)
+            man = fetch(ekatte.settlements(a.ekatte_year, obl, a.only), a.raw, workers=a.workers, delay=a.delay)
         except Forbidden as e:
             print(f"403 from KAIS, stopping: {e}", file=sys.stderr)
             return 2
@@ -62,6 +69,10 @@ def main(argv=None) -> int:
         from .convert import convert_oblast
         for o in a.oblast:
             print(o, convert_oblast(a.raw, a.out, o.upper(), geometry=a.geometry))
+    elif a.cmd == "tiles":
+        from .tiles import build_tiles
+        for o in a.oblast:
+            print(build_tiles(a.raw, a.out, o.upper()))
     elif a.cmd == "site":
         from .site import build
         print(json.dumps(build(a.out, a.site), ensure_ascii=False))

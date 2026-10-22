@@ -22,6 +22,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .dbf import iter_records
+from .tiles import transformer_for
 
 ROW_GROUP = 8192
 
@@ -116,8 +117,8 @@ def _schema(fields, kind: str, geometry: bool) -> pa.Schema:
     if kind == "units":
         cols += [("building", pa.string()), ("adjpart_sqm", pa.float64()), ("adjpart_pct", pa.float64())]
     cols.append(("source_date", pa.date32()))
-    if geometry:
-        cols += [("cx", pa.float64()), ("cy", pa.float64())]
+    if geometry or kind == "buildings":
+        cols += [("lon", pa.float64()), ("lat", pa.float64())]
     return pa.schema(cols)
 
 
@@ -130,8 +131,9 @@ def _rows(path: Path, kind: str, fields, geometry: bool) -> Iterator[dict]:
     cpg = _members(zf, ".cpg")
     encoding = zf.read(cpg).decode("ascii").strip() if cpg else "utf-8"
     _, records = iter_records(zf.open(dbf_name), encoding=encoding if encoding.upper() != "UTF-8" else "utf-8")
-    shp = _members(zf, ".shp") if geometry else None
+    shp = _members(zf, ".shp") if (geometry or kind == "buildings") else None
     cents = _centroids(zf.open(shp)) if shp else None
+    to_wgs84 = transformer_for(zf) if shp else None
     for rec in records:
         row = {n.lower(): rec.get(n) for n, _ in fields}
         for n, t in fields:
@@ -148,7 +150,10 @@ def _rows(path: Path, kind: str, fields, geometry: bool) -> Iterator[dict]:
             row["adjpart_sqm"], row["adjpart_pct"] = parse_adjpart(row["adjpart"])
         row["source_date"] = source_date
         if cents is not None:
-            row["cx"], row["cy"] = next(cents, (None, None))
+            x, y = next(cents, (None, None))
+            row["lon"], row["lat"] = (
+                [round(v, 7) for v in to_wgs84.transform(x, y)] if x is not None else (None, None)
+            )
         yield row
 
 
@@ -208,7 +213,7 @@ def _search_index(out: Path, oblast: str) -> None:
                  coalesce(u.unit_addr, b.immaddr) AS address,
                  u.entrances, u.blocks, coalesce(u.units, 0) AS units,
                  coalesce(u.units_with_adjpart, 0) AS units_with_adjpart,
-                 b.functype, b.flrcount,
+                 b.functype, b.flrcount, b.lon, b.lat,
                  lower(concat_ws(' ', coalesce(u.unit_addr, b.immaddr), b.immaddr,
                        'бл. ' || u.blocks, 'вх. ' || u.entrances)) AS q
           FROM read_parquet('{buildings}') b

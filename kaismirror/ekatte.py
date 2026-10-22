@@ -68,10 +68,18 @@ def load(data: bytes) -> list[Settlement]:
     return sorted(out, key=lambda s: (s.oblast, s.obshtina, s.ekatte))
 
 
-def settlements(year: int, oblasts: list[str] | None = None) -> list[Settlement]:
-    """All settlements, or only those in the given oblast codes (BGS, VAR, SOF, …)."""
+def settlements(year: int, oblasts: list[str] | None = None, only: str | None = None) -> list[Settlement]:
+    """All settlements, or only those in the given oblast codes (BGS, VAR, SOF, …).
+
+    only="towns" keeps the towns („гр.“: nearly all apartments and ideal parts),
+    only="villages" everything else, so a region can be fetched towns first and villages later.
+    """
     items = load(download(year))
     if oblasts:
         wanted = {o.upper() for o in oblasts}
         items = [s for s in items if s.oblast in wanted]
+    if only == "towns":
+        items = [s for s in items if s.kind == "гр."]
+    elif only == "villages":
+        items = [s for s in items if s.kind != "гр."]
     return items

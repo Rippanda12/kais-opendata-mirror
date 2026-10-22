@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Кадастър: сгради и обекти</title>
 <meta name="description" content="Неофициално огледало на отворените данни на АГКК (КАИС): сгради и самостоятелни обекти с площи и идеални части.">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@3.2.1/dist/pmtiles.js"></script>
 <style>
 :root { --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6a64; --line:#e3e0d8; --accent:#2f6b4f; --hit:#eef5f0; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#161715; --fg:#ecebe6; --muted:#9a998f; --line:#2c2e2a; --accent:#7fc4a0; --hit:#1f2a24; } }
@@ -25,6 +28,8 @@ th { font-weight:600; font-size:13px; color:var(--muted); }
 td.n { text-align:right; white-space:nowrap; }
 tr.click { cursor:pointer; } tr.click:hover { background:var(--hit); }
 tfoot td { font-weight:600; }
+#map { height:440px; border:1px solid var(--line); border-radius:6px; margin:12px 0 4px; background:#f6f5f1; }
+@media (max-width:640px) { #map { height:320px; } }
 footer { margin-top:32px; color:var(--muted); font-size:13px; }
 a { color:var(--accent); }
 @media (max-width:640px) { form { grid-template-columns: 1fr; } }
@@ -46,6 +51,7 @@ a { color:var(--accent); }
     <button>Търси</button>
   </form>
 
+  <div id="map" role="region" aria-label="Карта на сградите"></div>
   <div id="status">Зареждане…</div>
   <div class="wrap"><table id="out"></table></div>
 
@@ -67,6 +73,54 @@ const meta = await fetch("data/meta.json").then((r) => r.json());
 for (const o of meta.oblasts) $("oblast").add(new Option(o.name, o.code));
 $("asof").textContent = meta.source_date;
 
+// Map: KAIS-like cadastral look — near-white ground, faint grey streets, grey buildings, black outlines.
+maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
+const tilesUrl = (o) => `pmtiles://${dataUrl(`buildings-${o}.pmtiles`)}`;
+const centerOf = (o) => meta.oblasts.find((x) => x.code === o)?.center ?? [25.4, 42.7];
+const none = ["==", ["get", "c"], ""];
+const map = new maplibregl.Map({
+  container: "map", center: centerOf(meta.oblasts[0]?.code), zoom: 12, maxZoom: 20, hash: false,
+  style: {
+    version: 8,
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    sources: {
+      osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, maxzoom: 19,
+             attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
+      b: { type: "vector", url: tilesUrl(meta.oblasts[0]?.code) },
+    },
+    layers: [
+      { id: "ground", type: "background", paint: { "background-color": "#f6f5f1" } },
+      { id: "osm", type: "raster", source: "osm", paint: { "raster-saturation": -1, "raster-opacity": 0.28, "raster-contrast": -0.2 } },
+      { id: "b-fill", type: "fill", source: "b", "source-layer": "buildings",
+        paint: { "fill-color": ["case", [">", ["get", "u"], 0], "#bdb7ad", "#d6d2ca"] } },
+      { id: "b-line", type: "line", source: "b", "source-layer": "buildings",
+        paint: { "line-color": "#1d1d1b", "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.2, 17, 1, 19, 1.6] } },
+      { id: "sel-fill", type: "fill", source: "b", "source-layer": "buildings", filter: none,
+        paint: { "fill-color": "#e0533c", "fill-opacity": 0.55 } },
+      { id: "sel-line", type: "line", source: "b", "source-layer": "buildings", filter: none,
+        paint: { "line-color": "#b3261e", "line-width": 2.5 } },
+      { id: "b-num", type: "symbol", source: "b", "source-layer": "buildings", minzoom: 17,
+        layout: { "text-field": ["get", "n"], "text-font": ["Open Sans Semibold"], "text-size": 12 },
+        paint: { "text-color": "#1d1d1b", "text-halo-color": "#ffffff", "text-halo-width": 1.2 } },
+    ],
+  },
+});
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
+map.on("mouseenter", "b-fill", () => (map.getCanvas().style.cursor = "pointer"));
+map.on("mouseleave", "b-fill", () => (map.getCanvas().style.cursor = ""));
+map.on("click", "b-fill", (e) => {
+  const c = e.features[0]?.properties.c;
+  if (c) { $("cadnum").value = c; showCadnum(c, { fly: false }).catch((x) => status(x.message)); }
+});
+function select(building) {
+  const f = building ? ["==", ["get", "c"], building] : none;
+  map.setFilter("sel-fill", f); map.setFilter("sel-line", f);
+}
+$("oblast").addEventListener("change", () => {
+  const o = $("oblast").value;
+  map.getSource("b").setUrl(tilesUrl(o)); map.jumpTo({ center: centerOf(o), zoom: 12 }); select(null);
+});
+
 const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
 const worker = new Worker(URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" })));
 const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), worker);
@@ -75,7 +129,9 @@ const con = await db.connect();
 status("Готово.");
 
 const params = new URLSearchParams(location.search);
-if (params.get("oblast")) $("oblast").value = params.get("oblast");
+if (params.get("oblast") && params.get("oblast") !== $("oblast").value) {
+  $("oblast").value = params.get("oblast"); $("oblast").dispatchEvent(new Event("change"));
+}
 
 async function run(sql, args) {
   const stmt = await con.prepare(sql);
@@ -86,7 +142,7 @@ async function run(sql, args) {
 const fmt = (v, d = 2) => (v == null ? "" : Number(v).toLocaleString("bg-BG", { minimumFractionDigits: d, maximumFractionDigits: d }));
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-async function showCadnum(cad) {
+async function showCadnum(cad, { fly = true } = {}) {
   cad = cad.trim();
   if (!/^\d{5}(\.\d+){3,4}$/.test(cad)) { status("Идентификаторът е като 07079.602.802.1 (сграда) или 07079.602.802.1.5 (обект)."); return; }
   const oblast = $("oblast").value;
@@ -97,6 +153,12 @@ async function showCadnum(cad) {
     `SELECT cadnum, entrance, flrnum, appnum, apptype, apparea, adjpart_sqm, adjpart_pct, adjpart, immaddr
      FROM read_parquet('${dataUrl(`units-${oblast}.parquet`)}') WHERE ${col} = ? ORDER BY cadapp`, [cad]);
   if (!rows.length) { status("Няма самостоятелни обекти с този идентификатор в избраната област."); $("out").innerHTML = ""; return; }
+  const building = cad.split(".").slice(0, 4).join(".");
+  select(building);
+  if (fly) {
+    const [p] = await run(`SELECT lon, lat FROM read_parquet('${dataUrl(`search-${oblast}.parquet`)}') WHERE building = ?`, [building]);
+    if (p?.lon != null) map.flyTo({ center: [p.lon, p.lat], zoom: 18 });
+  }
   const sum = (k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
   status(`${rows.length} обекта · ${rows[0].immaddr?.replace(/,\s*(ет|ап)\..*$/, "") ?? ""}`);
   $("out").innerHTML =

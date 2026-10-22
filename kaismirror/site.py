@@ -22,11 +22,19 @@ def build(out: Path, site: Path) -> dict:
     for code in codes:
         for kind in ("units", "buildings", "search"):
             shutil.copy(out / f"{kind}-{code}.parquet", data / f"{kind}-{code}.parquet")
+        tiles = out / f"buildings-{code}.pmtiles"
+        if tiles.exists():
+            shutil.copy(tiles, data / tiles.name)
+        lon, lat = duckdb.sql(
+            f"SELECT median(lon), median(lat) FROM read_parquet('{out / f'buildings-{code}.parquet'}')"
+        ).fetchall()[0]
         d, n = duckdb.sql(
             f"SELECT max(source_date)::VARCHAR, count(*) FROM read_parquet('{out / f'units-{code}.parquet'}')"
         ).fetchall()[0]
         dates.append(d)
-        oblasts.append({"code": code, "name": names.get(code, code), "units": n})
+        oblasts.append({"code": code, "name": names.get(code, code), "units": n,
+                        "center": [round(lon, 5), round(lat, 5)] if lon is not None else None,
+                        "map": tiles.exists()})
     meta = {"source_date": max(dates) if dates else None, "oblasts": oblasts}
     (data / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1))
     return meta

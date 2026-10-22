@@ -115,12 +115,15 @@ def fetch(
     """Download into out/<oblast>/<ekatte>/<kind>.zip; returns a manifest (also written to out)."""
     stop = Event()
     jobs = [(s, k) for s in settlements for k in kinds]
-    known_missing = set()
+    # Entries of settlements outside this run (e.g. villages during a --only towns run) are kept.
+    this_run = {(s.ekatte, k) for s, k in jobs}
+    previous = []
     for oblast in {s.oblast for s in settlements}:
         prev = out / oblast / "manifest.json"
         if prev.exists():
-            known_missing |= {(m["ekatte"], m["kind"]) for m in json.loads(prev.read_text())
-                              if m["status"] == "missing"}
+            previous += json.loads(prev.read_text())
+    known_missing = {(m["ekatte"], m["kind"]) for m in previous if m["status"] == "missing"}
+    kept = [m for m in previous if (m["ekatte"], m["kind"]) not in this_run]
 
     done = []
     lock = Lock()
@@ -128,7 +131,8 @@ def fetch(
 
     def save():
         for oblast in {s.oblast for s in settlements}:
-            rows = [m for m in done if m["settlement"]["oblast"] == oblast]
+            rows = [m for m in kept + done if m["settlement"]["oblast"] == oblast]
+            rows.sort(key=lambda m: (m["settlement"]["obshtina"], m["ekatte"], m["kind"]))
             (out / oblast).mkdir(parents=True, exist_ok=True)
             tmp = out / oblast / "manifest.json.tmp"
             tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=1))
