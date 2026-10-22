@@ -176,5 +176,5 @@ Plan:
    polygons as GeoParquet and the поземлени имоти file can follow if anyone needs them. The
    ownership files stay out.
 6. **If KAIS blocks GitHub's runners:** a run fails at the first 403 and nothing is published that
-   month. Ask АГКК (oss_kais@cadastre.bg) for an allowance, or run the fetch from a home machine
+   month. The 403 is a WAF page with no `Retry-After`; it names `wso@cadastre.bg` and a support ID. Ask АГКК there (or oss_kais@cadastre.bg) for an allowance, or run the fetch from a home machine
    and upload with `gh release upload`.
