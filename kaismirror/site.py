@@ -66,6 +66,7 @@ def build(out: Path, site: Path) -> dict:
     protected = out / "protected.pmtiles"
     if protected.exists():
         shutil.copy(protected, data / protected.name)
+    dates = [d for d in dates if d]  # an oblast without units has no export date
     meta = {"source_date": max(dates) if dates else None, "oblasts": oblasts,
             "map": has_map, "parcels": has_parcels, "protected": protected.exists(), "ekatte": by_ekatte}
     (data / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, separators=(",", ":")))
