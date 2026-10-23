@@ -95,6 +95,7 @@ body.expanded.collapsed #sb-open { display:block; }
 .win p { margin:6px 8px; line-height:1.5; }
 .win .add { color:#2f6b4f; cursor:pointer; margin:6px 8px; display:inline-block; }
 .win .add.done { color:#888; cursor:default; }
+.win .glink { color:#2f6b4f; margin:6px 0; display:inline-block; }
 .win select { width:100%; border-color:#cfcfc9; color:#1d1d1b; margin:4px 0 6px; }
 .win.wide { width:760px; }
 .win .tools { display:flex; gap:6px; flex-wrap:wrap; margin:6px 8px; }
@@ -119,6 +120,9 @@ body.expanded.collapsed #sb-open { display:block; }
   .win { box-shadow:none; border:1px solid #999; }
 }
 @media (max-width:640px) {
+  #tools { flex-wrap:wrap; max-width:calc(100% - 60px); }
+  #tools button { padding:5px 7px; font-size:12px; }
+  #layers { top:auto; bottom:30px; }
   form { grid-template-columns: 1fr; } #stage { height:340px; }
   body.expanded #app { grid-template-columns: 1fr; grid-template-rows: 1fr 45vh; }
   body.expanded #panel { order:2; border-right:0; border-top:1px solid var(--line); }
@@ -633,7 +637,9 @@ function openWindow(key, title, html, at) {
     const off = (winN++ % 6) * 28;
     const x = at ? Math.min(at.x + 16, stage.clientWidth - 380) : 60 + off;
     const y = at ? Math.min(Math.max(at.y - 40, 50), stage.clientHeight - 200) : 50 + off;
-    w.style.left = `${Math.max(10, x)}px`; w.style.top = `${Math.max(10, y)}px`;
+    // keep the whole window inside the map (narrow screens: flush left)
+    w.style.left = `${Math.max(10, Math.min(x, stage.clientWidth - w.offsetWidth - 10))}px`;
+    w.style.top = `${Math.max(10, y)}px`;
     w.querySelector("header button").onclick = () => { w.remove(); if (focus === key || focus === buildingOf(key)) { focus = null; paint(); } };
     dragWindow(w);
     w.addEventListener("pointerdown", () => (w.style.zIndex = ++winZ));
@@ -679,7 +685,7 @@ const acts = (cad) => `<span class="acts"><button type="button" data-act="zoom" 
   `<button type="button" data-act="info" data-cad="${esc(cad)}" title="Информация">i</button>` +
   `<button type="button" data-act="add" data-cad="${esc(cad)}" title="Добави в списъка">+</button></span>`;
 const addLink = (cad) => `<span class="add" data-act="add" data-cad="${esc(cad)}">Добави в списък с обекти</span>` +
-  ` · <a class="add" href="#" data-act="gmaps" data-cad="${esc(cad)}">Google Maps</a>`;
+  ` · <a class="glink" href="#" data-act="gmaps" data-cad="${esc(cad)}">Google Maps</a>`;
 const order = (v) => (v ? `<h4>Основна заповед</h4><p>Заповед за одобрение на КККР ${esc(v)}</p>` : "");
 // Съседи: parcels/buildings whose outlines touch (neighbours-<OBL>.parquet, where built).
 async function neighboursHtml(cad, o) {
