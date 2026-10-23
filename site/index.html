@@ -176,6 +176,10 @@ body.expanded.collapsed #sb-open { display:block; }
         <label><input type="checkbox" data-layer="buildings" checked> Сгради</label>
         <label><input type="checkbox" data-layer="labels" checked> Номера</label>
         <label><input type="checkbox" data-layer="3d"> 3D по етажи</label>
+        <b>Ограничения</b>
+        <label><input type="checkbox" data-layer="natura"> Натура 2000</label>
+        <label><input type="checkbox" data-layer="national"> Защитени територии</label>
+        <label><input type="checkbox" data-layer="restrict"> Защитени/нарушени имоти (КАИС)</label>
         <b>Вид територия</b>
         <span class="legend"><i style="background:#f3e3df"></i>урбанизирана <i style="background:#f4efd8"></i>земеделска <i style="background:#e2eedd"></i>горска
           <i style="background:#dfeaf3"></i>води <i style="background:#ecebe8"></i>транспорт</span>
@@ -249,10 +253,24 @@ if (meta.parcels) {
     { id: "p-fill", type: "fill", source: "p", "source-layer": "parcels",
       // purpose codes: 1 urban, 2 transport, 3 agricultural, 4 forest, 5 water, 6 protected, 7 disturbed
       paint: { "fill-color": ["match", ["get", "p"], "1", "#f3e3df", "2", "#ecebe8", "3", "#f4efd8", "4", "#e2eedd", "5", "#dfeaf3", "6", "#e6efdc", "#f6f5f1"], "fill-opacity": 0.75 } },
+    // protected (6) and disturbed (7) territories from the cadastre itself: „Ограничения“ switch
+    { id: "r-fill", type: "fill", source: "p", "source-layer": "parcels", filter: ["in", ["get", "p"], ["literal", ["6", "7"]]],
+      paint: { "fill-color": ["match", ["get", "p"], "6", "#2e7d32", "#8d6e63"], "fill-opacity": 0 } },
     { id: "p-sel", type: "fill", source: "p", "source-layer": "parcels", filter: nothing, paint: { "fill-color": "#e0533c", "fill-opacity": 0.22 } },
     { id: "p-line", type: "line", source: "p", "source-layer": "parcels",
       paint: { "line-color": "#9b2c22", "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.3, 17, 1, 19, 1.4] } },
     { id: "p-sel-line", type: "line", source: "p", "source-layer": "parcels", filter: nothing, paint: { "line-color": "#b3261e", "line-width": 2.5 } },
+  );
+}
+// Protected areas (EEA): kept in the style at opacity 0 when switched off, so a click still lists them.
+if (meta.protected) {
+  sources.z = { type: "vector", url: `pmtiles://${dataUrl("protected.pmtiles")}`, attribution: "EEA" };
+  layers.push(
+    { id: "z-national-f", type: "fill", source: "z", "source-layer": "national", paint: { "fill-color": "#7b3fa0", "fill-opacity": 0 } },
+    { id: "z-national-l", type: "line", source: "z", "source-layer": "national", paint: { "line-color": "#7b3fa0", "line-width": 1.6, "line-opacity": 0 } },
+    { id: "z-natura-f", type: "fill", source: "z", "source-layer": "natura", paint: { "fill-color": ["match", ["get", "kind"], "птици", "#1f6fd1", "#2e7d32"], "fill-opacity": 0 } },
+    { id: "z-natura-l", type: "line", source: "z", "source-layer": "natura",
+      paint: { "line-color": ["match", ["get", "kind"], "птици", "#1f6fd1", "#2e7d32"], "line-width": 1.4, "line-dasharray": [3, 2], "line-opacity": 0 } },
   );
 }
 if (meta.map) {
@@ -336,6 +354,10 @@ function applyLayers() {
   for (const id of LAYER_GROUPS.parcels) vis(id, on("parcels") && (!id.endsWith("num") || on("labels")));
   for (const id of LAYER_GROUPS.buildings) vis(id, on("buildings") && !(on("3d") && id === "b-fill") && (id !== "b-num" || on("labels")));
   vis("b-3d", on("buildings") && on("3d"));
+  const op = (id, prop, v) => map.getLayer(id) && map.setPaintProperty(id, prop, v);
+  op("z-natura-f", "fill-opacity", on("natura") ? 0.12 : 0); op("z-natura-l", "line-opacity", on("natura") ? 0.9 : 0);
+  op("z-national-f", "fill-opacity", on("national") ? 0.12 : 0); op("z-national-l", "line-opacity", on("national") ? 0.9 : 0);
+  op("r-fill", "fill-opacity", on("restrict") ? 0.35 : 0);
   vis("b-sel-3d", on("buildings") && on("3d"));
   const base = document.querySelector('#layers [name="base"]:checked').value;
   vis("osm", base !== "none");
@@ -418,7 +440,7 @@ map.on("click", (e) => {
   if (!f) return;
   const add = tool === "select" || e.originalEvent.ctrlKey || e.originalEvent.metaKey || e.originalEvent.shiftKey;
   if (add) toggleList(f.properties.c).catch(fail);
-  else openInfo(f.properties.c, { at: e.point, fly: false }).catch(fail);
+  else openInfo(f.properties.c, { at: e.point, fly: false, zones: zonesAt(e.point) }).catch(fail);
 });
 // On a Mac, Ctrl+click arrives as a right click: treat it as "add" too.
 map.on("contextmenu", (e) => {
@@ -580,6 +602,18 @@ async function openGoogleMaps(cad) {
   if (p?.lon != null) window.open(`https://www.google.com/maps/search/?api=1&query=${p.lat.toFixed(6)},${p.lon.toFixed(6)}`, "_blank", "noopener");
 }
 
+function zonesAt(point) {
+  const ids = ["z-natura-f", "z-national-f"].filter((l) => map.getLayer(l));
+  if (!ids.length) return [];
+  const seen = new Set();
+  return map.queryRenderedFeatures(point, { layers: ids }).map((f) => ({ layer: f.sourceLayer, ...f.properties }))
+    .filter((z) => { const k = z.code || z.name; if (seen.has(k)) return false; seen.add(k); return true; });
+}
+const zonesHtml = (zones) => (zones?.length ? `<h4>Защитени зони</h4>` + zones.map((z) => z.layer === "natura"
+  ? `<p>Натура 2000 (${esc(z.kind)}): <a href="https://natura2000.eea.europa.eu/Natura2000/SDF.aspx?site=${encodeURIComponent(z.code)}" target="_blank" rel="noopener">${esc(z.code)}</a> ${esc(z.name)}</p>`
+  : `<p>${esc(z.cat)}: ${esc(z.name)}${z.year ? ", от " + esc(z.year) : ""}</p>`).join("") +
+  `<p style="color:#6b6a64;font-size:12px">Източник: Европейска агенция по околна среда. Ориентировъчно — границите са опростени.</p>` : "");
+
 // ---------- Floating windows.
 let winZ = 10, winN = 0;
 function openWindow(key, title, html, at) {
@@ -654,7 +688,7 @@ const place = (cad, addr) => {
   return `${o ? "област " + esc(o.name) + ", " : ""}${esc(addr ?? "")}`;
 };
 
-async function openInfo(cad, { at = null, fly = true } = {}) {
+async function openInfo(cad, { at = null, fly = true, zones = null } = {}) {
   cad = cad.trim();
   if (!validId(cad) || !kindOf(cad)) { status("Идентификаторът е като 10135.2562.46 (имот), 10135.2562.46.1 (сграда) или 10135.2562.46.1.5 (обект)."); return; }
   const o = oblastOf(cad);
@@ -663,12 +697,12 @@ async function openInfo(cad, { at = null, fly = true } = {}) {
   focus = kindOf(cad) === "unit" ? buildingOf(cad) : cad; paint();
   if (fly) flyTo(cad).catch(() => {});
   const k = kindOf(cad);
-  if (k === "parcel") return parcelWindow(cad, o, at);
-  if (k === "building") return buildingWindow(cad, o, at);
+  if (k === "parcel") return parcelWindow(cad, o, at, zones);
+  if (k === "building") return buildingWindow(cad, o, at, zones);
   return unitWindow(cad, o, at);
 }
 
-async function parcelWindow(cad, o, at) {
+async function parcelWindow(cad, o, at, zones) {
   const [r] = await run(`SELECT * FROM read_parquet(${file("parcels", o)}) WHERE cadnum = ?`, [cad]).catch(() => []);
   const p = r ? { pr: r.proptype, pt: r.purptype, ut: r.usetype, a: r.area, pl: r.place || r.quarname, v: r.validate } : null;
   if (p) parcelInfo.set(cad, p);
@@ -680,14 +714,14 @@ async function parcelWindow(cad, o, at) {
     `площ ${Number(p.a).toLocaleString("bg-BG")} кв. м`, p.pl && `местност ${esc(p.pl)}`].filter(Boolean).join(", ")
     : "Щракнете имота на картата за вида и площта му.";
   openWindow(cad, `Информация: ПИ ${cad}`,
-    `<h3>ПИ ${esc(cad)} ${place(cad, rows[0]?.address?.split(",")[0] ?? "")}</h3>${addLink(cad)}<p>${desc}</p>${order(p?.v)}${await neighboursHtml(cad, o)}` +
+    `<h3>ПИ ${esc(cad)} ${place(cad, rows[0]?.address?.split(",")[0] ?? "")}</h3>${addLink(cad)}<p>${desc}</p>${order(p?.v)}${zonesHtml(zones)}${await neighboursHtml(cad, o)}` +
     `<h4>Сгради в имота (${rows.length})</h4>` +
     (rows.map((r) => `<div class="item"><div class="t"><b>Сграда ${esc(r.building)}</b> ${esc(r.functype ?? "")}` +
       `${r.flrcount ? ", " + r.flrcount + " ет." : ""}${r.units ? ", " + r.units + " обекта" : ""}</div>${acts(r.building)}</div>`).join("") || "<p>Няма сгради.</p>"), at);
   paint();
 }
 
-async function buildingWindow(cad, o, at) {
+async function buildingWindow(cad, o, at, zones) {
   const [[b], units] = await Promise.all([
     run(`SELECT cadnum, functype, flrcount, appcount, area, proptype, immaddr, validate FROM read_parquet(${file("buildings", o)}) WHERE cadnum = ?`, [cad]),
     run(`SELECT cadnum, entrance, flrnum, appnum, apptype, immaddr FROM read_parquet(${file("units", o)}) WHERE building = ? ORDER BY cadapp`, [cad]),
@@ -699,7 +733,7 @@ async function buildingWindow(cad, o, at) {
     .filter(Boolean).join(", ");
   const floors = [...new Set(units.map((u) => u.flrnum ?? ""))].sort((a, b) => Number(a) - Number(b) || String(a).localeCompare(b));
   openWindow(cad, `Информация: Сграда ${cad}`,
-    `<h3>Сграда ${esc(cad)} ${place(cad, addr)}</h3>${addLink(cad)}<p>${desc}</p>${order(b?.validate)}${await neighboursHtml(cad, o)}` +
+    `<h3>Сграда ${esc(cad)} ${place(cad, addr)}</h3>${addLink(cad)}<p>${desc}</p>${order(b?.validate)}${zonesHtml(zones)}${await neighboursHtml(cad, o)}` +
     (units.length ? `<div class="tools"><button type="button" data-act="shares" data-cad="${esc(cad)}">Идеални части (ЗУЕС)</button></div>` : "") +
     `<h4>Имот</h4><div class="item"><div class="t"><b>ПИ ${esc(parcelOf(cad))}</b></div>${acts(parcelOf(cad))}</div>` +
     (units.length ? `<h4>Етаж</h4><select data-floor><option value="">всички (${units.length})</option>` +

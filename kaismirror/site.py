@@ -33,7 +33,7 @@ def build(out: Path, site: Path) -> dict:
     data = site / "data"
     data.mkdir(parents=True, exist_ok=True)
     shutil.copy(PAGE, site / "index.html")
-    for old in data.glob("*-*.pmtiles"):  # per-oblast tiles from older builds
+    for old in data.glob("*-???.pmtiles"):  # per-oblast tiles from older builds
         old.unlink()
     codes = sorted(p.name[len("units-"):-len(".parquet")] for p in out.glob("units-*.parquet"))
     names = {s.oblast: s.oblast_name for s in ekatte.load(ekatte.download(ekatte.default_year()))}
@@ -63,7 +63,10 @@ def build(out: Path, site: Path) -> dict:
                            if (out / f"buildings-{c}.pmtiles").exists()], data / "buildings.pmtiles")
     has_parcels = _join_tiles([out / f"parcels-{c}.pmtiles" for c in codes
                                if (out / f"parcels-{c}.pmtiles").exists()], data / "parcels.pmtiles")
+    protected = out / "protected.pmtiles"
+    if protected.exists():
+        shutil.copy(protected, data / protected.name)
     meta = {"source_date": max(dates) if dates else None, "oblasts": oblasts,
-            "map": has_map, "parcels": has_parcels, "ekatte": by_ekatte}
+            "map": has_map, "parcels": has_parcels, "protected": protected.exists(), "ekatte": by_ekatte}
     (data / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, separators=(",", ":")))
     return {k: v for k, v in meta.items() if k != "ekatte"} | {"settlements": len(by_ekatte)}

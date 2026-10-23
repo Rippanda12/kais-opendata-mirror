@@ -37,6 +37,8 @@ certified справка from КАИС. The mirror never logs in to KAIS.
 **Left out on purpose:** the ownership files (собственост ПИ / сгради / СОС). They contain company
 names, stable hashed identifiers of private persons, and notary deed numbers.
 
+**Protected areas** (Natura 2000, nationally designated areas) come from the European Environment Agency's open data (reuse with attribution: „© EEA“), built with `python -m kaismirror protected`. Their boundaries are simplified (~5 m) and are only a guide.
+
 The code is MIT licensed. The data belongs to АГКК; please credit „Източник: АГКК, КАИС — Отворени данни“.
 
 ## Files
@@ -52,6 +54,7 @@ attached to every release and also served by GitHub Pages under `/data/`.
 | `parcels-<OBL>.parquet` | every land parcel: purpose, use, kind of property, locality, area, order (no owners) |
 | `neighbours-<OBL>.parquet` | for each parcel and building, the ids of those whose outlines touch it („Съседи“) |
 | `buildings.pmtiles`, `parcels.pmtiles` | outlines as vector tiles for the whole mirror (WGS84; buildings z12–16, parcels z14–15) |
+| `protected.pmtiles` | Natura 2000 sites and nationally protected areas in Bulgaria (from the EEA), for the „Ограничения“ layers |
 | `manifest-<OBL>.json` | which settlements had which file (release only) |
 
 `units` columns are the KAIS attributes in lower case, plus a few derived ones:

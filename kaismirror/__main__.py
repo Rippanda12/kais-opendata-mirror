@@ -43,6 +43,9 @@ def main(argv=None) -> int:
     m.add_argument("--raw", type=Path, default=Path("data/raw"))
     m.add_argument("--out", type=Path, default=Path("data/out"))
 
+    pr = sub.add_parser("protected", help="Natura 2000 and national protected areas (EEA) -> protected.pmtiles")
+    pr.add_argument("--out", type=Path, default=Path("data/out"))
+
     w = sub.add_parser("site", help="assemble the static site (page + Parquet + meta.json)")
     w.add_argument("--out", type=Path, default=Path("data/out"))
     w.add_argument("--site", type=Path, default=Path("data/site"))
@@ -89,6 +92,9 @@ def main(argv=None) -> int:
             for kind in a.kinds.split(","):
                 print(build_tiles(a.raw, a.out, o.upper(), kind))
             print(build_neighbours(a.raw, a.out, o.upper()))
+    elif a.cmd == "protected":
+        from .protected import build_protected
+        print(build_protected(a.out))
     elif a.cmd == "site":
         from .site import build
         print(json.dumps(build(a.out, a.site), ensure_ascii=False))
