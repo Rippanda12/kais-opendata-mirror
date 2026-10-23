@@ -574,6 +574,12 @@ async function flyTo(cad) {
   if (p?.lon != null) map.flyTo({ center: [p.lon, p.lat], zoom: kindOf(cad) === "parcel" ? 17.5 : 18 });
 }
 
+async function openGoogleMaps(cad) {
+  const o = oblastOf(cad), target = kindOf(cad) === "unit" ? buildingOf(cad) : cad;
+  const [p] = await run(`SELECT avg(lon) lon, avg(lat) lat FROM read_parquet(${file("search", o)}) WHERE building = ? OR starts_with(building, ? || '.')`, [target, target]);
+  if (p?.lon != null) window.open(`https://www.google.com/maps/search/?api=1&query=${p.lat.toFixed(6)},${p.lon.toFixed(6)}`, "_blank", "noopener");
+}
+
 // ---------- Floating windows.
 let winZ = 10, winN = 0;
 function openWindow(key, title, html, at) {
@@ -620,6 +626,7 @@ $("stage").addEventListener("click", (e) => {
   if (b.dataset.act === "info") { e.preventDefault(); openInfo(cad, { fly: b.tagName === "A" }).catch(fail); }
   if (b.dataset.act === "add" && !list.has(cad)) toggleList(cad).catch(fail);
   if (b.dataset.act === "shares") sharesWindow(cad).catch(fail);
+  if (b.dataset.act === "gmaps") { e.preventDefault(); openGoogleMaps(cad).catch(fail); }
   if (b.dataset.act === "shares-xlsx") exportShares(b.dataset.cad, "xlsx").catch(fail);
   if (b.dataset.act === "shares-csv") exportShares(b.dataset.cad, "csv").catch(fail);
 });
@@ -631,7 +638,8 @@ $("stage").addEventListener("change", (e) => {
 const acts = (cad) => `<span class="acts"><button type="button" data-act="zoom" data-cad="${esc(cad)}" title="Покажи на картата">🔍</button>` +
   `<button type="button" data-act="info" data-cad="${esc(cad)}" title="Информация">i</button>` +
   `<button type="button" data-act="add" data-cad="${esc(cad)}" title="Добави в списъка">+</button></span>`;
-const addLink = (cad) => `<span class="add" data-act="add" data-cad="${esc(cad)}">Добави в списък с обекти</span>`;
+const addLink = (cad) => `<span class="add" data-act="add" data-cad="${esc(cad)}">Добави в списък с обекти</span>` +
+  ` · <a class="add" href="#" data-act="gmaps" data-cad="${esc(cad)}">Google Maps</a>`;
 const order = (v) => (v ? `<h4>Основна заповед</h4><p>Заповед за одобрение на КККР ${esc(v)}</p>` : "");
 // Съседи: parcels/buildings whose outlines touch (neighbours-<OBL>.parquet, where built).
 async function neighboursHtml(cad, o) {
