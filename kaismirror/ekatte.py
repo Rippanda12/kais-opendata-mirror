@@ -10,6 +10,7 @@ import json
 import urllib.request
 import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 
 EKATTE_URL = "https://www.nsi.bg/nrnm/ekatte/archive/json/Ekatte-{year}-json.zip/download"
 USER_AGENT = "kais-opendata-mirror (+https://github.com/Rippanda12/kais-opendata-mirror)"
@@ -39,10 +40,23 @@ def default_year() -> int:
     return dt.date.today().year - 1
 
 
+CACHE = Path.home() / ".cache" / "kaismirror"
+
+
 def download(year: int) -> bytes:
+    """The NSI archive for `year`; the last good copy is kept, because nsi.bg is sometimes down."""
+    cached = CACHE / f"ekatte-{year}.zip"
     req = urllib.request.Request(EKATTE_URL.format(year=year), headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = r.read()
+    except OSError:
+        if cached.exists():
+            return cached.read_bytes()
+        raise
+    CACHE.mkdir(parents=True, exist_ok=True)
+    cached.write_bytes(data)
+    return data
 
 
 def load(data: bytes) -> list[Settlement]:
