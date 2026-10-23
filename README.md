@@ -3,14 +3,15 @@
 **English** · [Български](README.bg.md)
 
 An unofficial mirror of the open data from the Bulgarian cadastre (Агенция по геодезия, картография и
-кадастър, **АГКК**, portal **КАИС**). It covers buildings (сгради) and independent units
-(самостоятелни обекти: apartments, shops, garages, cellars), with their areas, **ideal parts of the
-common areas** (идеални части), addresses, entrance, floor and cadastral identifiers. The data is
-published as Parquet and can be queried from a browser, DuckDB, Python or any HTTP client.
+кадастър, **АГКК**, portal **КАИС**). It covers land parcels (поземлени имоти), buildings (сгради)
+and independent units (самостоятелни обекти: apartments, shops, garages, cellars), with their areas,
+**ideal parts of the common areas** (идеални части), addresses, entrance, floor, outlines and
+cadastral identifiers. The data is published as Parquet and PMTiles and can be queried from a
+browser, DuckDB, Python or any HTTP client.
 
 - **Query page:** https://rippanda12.github.io/kais-opendata-mirror/ (e.g. `?oblast=VAR&cadnum=10135.2562.46.1`)
 - **Files:** [latest release](https://github.com/Rippanda12/kais-opendata-mirror/releases/latest)
-- **Coverage:** област Бургас (BGS) for now; see [the country plan](#rest-of-the-country).
+- **Coverage:** published: област Бургас (BGS); more oblasts are being fetched, see [the country plan](#rest-of-the-country).
 
 ## Source and license
 
@@ -34,8 +35,7 @@ This mirror therefore republishes the files with attribution. It does not claim 
 certified справка from КАИС. The mirror never logs in to KAIS.
 
 **Left out on purpose:** the ownership files (собственост ПИ / сгради / СОС). They contain company
-names, stable hashed identifiers of private persons, and notary deed numbers. Land parcels
-(поземлени имоти) and geometry are also left out, to keep the mirror small; see the plan below.
+names, stable hashed identifiers of private persons, and notary deed numbers.
 
 The code is MIT licensed. The data belongs to АГКК; please credit „Източник: АГКК, КАИС — Отворени данни“.
 
@@ -49,7 +49,9 @@ attached to every release and also served by GitHub Pages under `/data/`.
 | `units-<OBL>.parquet` | every independent unit, sorted by building |
 | `buildings-<OBL>.parquet` | every building, sorted by `cadnum` |
 | `search-<OBL>.parquet` | one row per building: address text, blocks, entrances, unit count, `lon`/`lat` (for address search) |
-| `buildings-<OBL>.pmtiles` | building outlines as vector tiles (WGS84, zoom 12–16) for the map |
+| `parcels-<OBL>.parquet` | every land parcel: purpose, use, kind of property, locality, area, order (no owners) |
+| `neighbours-<OBL>.parquet` | for each parcel and building, the ids of those whose outlines touch it („Съседи“) |
+| `buildings.pmtiles`, `parcels.pmtiles` | outlines as vector tiles for the whole mirror (WGS84; buildings z12–16, parcels z14–15) |
 | `manifest-<OBL>.json` | which settlements had which file (release only) |
 
 `units` columns are the KAIS attributes in lower case, plus a few derived ones:
@@ -91,12 +93,26 @@ what the register says, not as a checked distribution.
 
 ### In the browser
 
-On the [query page](https://rippanda12.github.io/kais-opendata-mirror/), pick the oblast and enter
-a building id (`10135.2562.46.1`) or a unit id, or search an address
-(`чайка бл. 10`, `чайка бл. 10 вх. А`). The map is styled like the KAIS cadastral map: plain
-ground, faint grey streets, grey buildings with black outlines and their numbers from zoom 17.
-Click a building to see its units; a search flies to the building. The page runs DuckDB-wasm and reads only the parts
-of the Parquet it needs, using HTTP range requests against GitHub Pages. There is no server.
+On the [query page](https://rippanda12.github.io/kais-opendata-mirror/), enter a parcel, building
+or unit id (`10135.2562.46`, `10135.2562.46.1`, `10135.2562.46.1.5`) or search an address. The
+search ignores punctuation and accepts Latin letters (`chayka bl 10` finds „Чайка, бл. 10“). The
+map looks like the KAIS cadastral map, and works much like it:
+
+- **Information windows** (draggable, several at once) for a parcel (ПИ), building or unit (СОС):
+  kind of property, purpose, floors, area, the approving order, neighbours („Съседи“), the buildings
+  on a parcel and the units of a building, filterable by floor.
+- **Ideal parts calculator** in the building window: each unit's share by чл. 17, ал. 4 ЗУЕС (its
+  area ÷ the total area × 100 %) next to the share written in the register. Areas can be corrected
+  and units left out; the table exports to Excel or CSV.
+- **Tools:** information (default), box select, area and distance measuring, my location,
+  positioning by coordinates (WGS84 or BGS2005, the cadastre's own), print.
+- **„Списък с обекти“:** collect parcels, buildings and units (click with Ctrl/⌘/Shift, the + buttons
+  or a box) and export every unit with its ideal parts to Excel or CSV.
+- **Layers:** grey or colour base map, parcels, buildings, numbers, **3D buildings by floors**.
+- **Expanded view:** the map fills the tab with a resizable, collapsible sidebar.
+
+The page runs DuckDB-wasm and reads only the parts of the Parquet it needs, using HTTP range
+requests. There is no server.
 
 ### DuckDB / Python (server side)
 
@@ -125,11 +141,12 @@ with the NSI register, or check the `ekatte` column of `search-<OBL>.parquet`.
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[test]"
 .venv/bin/python -m kaismirror settlements BGS     # folders that will be tried
-.venv/bin/python -m kaismirror fetch BGS           # → data/raw/BGS/<ekatte>/{buildings,units}.zip
+.venv/bin/python -m kaismirror fetch BGS --kinds buildings,units,parcels   # → data/raw/BGS/<ekatte>/*.zip
 .venv/bin/python -m kaismirror fetch BGS --only towns   # towns („гр.“) first; --only villages later
 .venv/bin/python -m kaismirror convert BGS         # → data/out/*.parquet   (--geometry: lon/lat for units too)
-.venv/bin/python -m kaismirror tiles BGS           # → data/out/buildings-BGS.pmtiles (needs tippecanoe)
-.venv/bin/python -m kaismirror site                # → data/site (page + Parquet + tiles + meta.json)
+.venv/bin/python -m kaismirror tiles BGS           # → *.pmtiles, parcels-BGS.parquet, neighbours-BGS.parquet (needs tippecanoe)
+.venv/bin/python -m kaismirror site                # → data/site (page + Parquet + national tiles + meta.json)
+python tools/serve.py 8765 data/site               # local preview with range requests
 ```
 
 How it works:
@@ -148,6 +165,15 @@ How it works:
 - **Zips:** member names are cp866. The `.dbf` attribute tables are UTF-8, as the `.cpg` says. They
   are read straight from the zip; Burgas's 730 MB units table converts in seconds.
 
+### Whole oblasts: `fetch-oblasts`
+
+`.github/workflows/fetch-oblasts.yml` (run by hand) fetches the oblasts you list, one job per
+oblast, **one at a time**, converts them and uploads the files, plus the raw zips as
+`raw-<OBL>.tar`, to the **draft** release `staging`. A draft is visible only to the repository's
+collaborators and doesn't touch Pages, so nothing is public until it's published on purpose.
+Running several oblasts in parallel would only mean more GitHub IPs against KAIS's per-IP limit,
+so it stays at one.
+
 ### Monthly refresh
 
 `.github/workflows/refresh.yml` runs on the 25th of each month (KAIS re-exports around the 20th).
@@ -163,9 +189,10 @@ without touching KAIS.
 | Settlements tried | 249 | 5,256 |
 | Requests per refresh (2 files each) | ~500 | ~10,500 |
 | Time at 5 s/request | ~45 min | ~15 h |
-| Zips downloaded (buildings + units) | see release manifest | ~0.6–1 GB |
-| Parquet published | ~15 MB | ~250–350 MB |
-| Map tiles (PMTiles) | 19 MB | ~350–500 MB |
+| Zips downloaded (buildings + units + parcels) | ~140 MB | ~3–5 GB |
+| Parquet published | ~45 MB | ~0.8–1 GB |
+| Building tiles | ~19 MB | ~350–500 MB |
+| Parcel tiles (z14–15) | ~78 MB | ~1.5–2 GB |
 
 Plan:
 
@@ -178,15 +205,13 @@ Plan:
    quarterly.
 3. **Sofia city** (`SOF`, Столична община) may use different folder names. Check the first run's
    404s against the KAIS page by hand and add overrides in `ekatte.py` if needed.
-4. **Hosting:** Parquet plus map tiles for the whole country come close to GitHub Pages' 1 GB site
-   limit, so the tiles would move to release assets read through a CORS proxy or to Cloudflare R2
-   (free egress), or they'd stop at zoom 15. Release assets allow 2 GB each. If the search files
-   grow, split `search` per municipality.
+4. **Hosting:** with parcels, the whole country is well over GitHub Pages' 1 GB site limit. The
+   tiles and Parquet would move to a host with range requests and CORS, e.g. Cloudflare R2 (free up
+   to 10 GB, no egress fees); the page itself can stay on Pages. Release assets allow 2 GB each but
+   can't be read from a browser (no CORS).
    Towns go first (`--only towns`: 257 towns, ~500 requests): they hold nearly all apartments and
    ideal parts. Villages follow later.
-5. **Optional extras:** parcel boundaries (the поземлени имоти file, about one more request per
-   settlement) would complete the KAIS look on the map. Full polygons as GeoParquet could follow too. The
-   ownership files stay out.
+5. **Ownership files stay out.**
 6. **If KAIS blocks GitHub's runners:** a run fails at the first 403 and nothing is published that
    month. The 403 is a WAF page with no `Retry-After`; it names `wso@cadastre.bg` and a support ID. Ask АГКК there (or oss_kais@cadastre.bg) for an allowance, or run the fetch from a home machine
    and upload with `gh release upload`.
