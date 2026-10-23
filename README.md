@@ -54,7 +54,7 @@ attached to every release and also served by GitHub Pages under `/data/`.
 | `parcels-<OBL>.parquet` | every land parcel: purpose, use, kind of property, locality, area, order (no owners) |
 | `neighbours-<OBL>.parquet` | for each parcel and building, the ids of those whose outlines touch it („Съседи“) |
 | `buildings.pmtiles`, `parcels.pmtiles` | outlines as vector tiles for the whole mirror (WGS84; buildings z12–16, parcels z14–15) |
-| `protected.pmtiles` | Natura 2000 sites and nationally protected areas in Bulgaria (from the EEA), for the „Ограничения“ layers |
+| `protected.pmtiles` | Natura 2000 sites, nationally protected areas and flood risk areas in Bulgaria (from the EEA), for the „Ограничения“ layers |
 | `manifest-<OBL>.json` | which settlements had which file (release only) |
 
 `units` columns are the KAIS attributes in lower case, plus a few derived ones:

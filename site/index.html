@@ -179,6 +179,7 @@ body.expanded.collapsed #sb-open { display:block; }
         <b>Ограничения</b>
         <label><input type="checkbox" data-layer="natura"> Натура 2000</label>
         <label><input type="checkbox" data-layer="national"> Защитени територии</label>
+        <label><input type="checkbox" data-layer="floods"> Риск от наводнения</label>
         <label><input type="checkbox" data-layer="restrict"> Защитени/нарушени имоти (КАИС)</label>
         <b>Вид територия</b>
         <span class="legend"><i style="background:#f3e3df"></i>урбанизирана <i style="background:#f4efd8"></i>земеделска <i style="background:#e2eedd"></i>горска
@@ -266,6 +267,8 @@ if (meta.parcels) {
 if (meta.protected) {
   sources.z = { type: "vector", url: `pmtiles://${dataUrl("protected.pmtiles")}`, attribution: "EEA" };
   layers.push(
+    { id: "z-floods-f", type: "fill", source: "z", "source-layer": "floods", filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": "#0277bd", "fill-opacity": 0 } },
+    { id: "z-floods-l", type: "line", source: "z", "source-layer": "floods", paint: { "line-color": "#0277bd", "line-width": 2.5, "line-opacity": 0 } },
     { id: "z-national-f", type: "fill", source: "z", "source-layer": "national", paint: { "fill-color": "#7b3fa0", "fill-opacity": 0 } },
     { id: "z-national-l", type: "line", source: "z", "source-layer": "national", paint: { "line-color": "#7b3fa0", "line-width": 1.6, "line-opacity": 0 } },
     { id: "z-natura-f", type: "fill", source: "z", "source-layer": "natura", paint: { "fill-color": ["match", ["get", "kind"], "птици", "#1f6fd1", "#2e7d32"], "fill-opacity": 0 } },
@@ -358,6 +361,7 @@ function applyLayers() {
   op("z-natura-f", "fill-opacity", on("natura") ? 0.12 : 0); op("z-natura-l", "line-opacity", on("natura") ? 0.9 : 0);
   op("z-national-f", "fill-opacity", on("national") ? 0.12 : 0); op("z-national-l", "line-opacity", on("national") ? 0.9 : 0);
   op("r-fill", "fill-opacity", on("restrict") ? 0.35 : 0);
+  op("z-floods-f", "fill-opacity", on("floods") ? 0.2 : 0); op("z-floods-l", "line-opacity", on("floods") ? 0.9 : 0);
   vis("b-sel-3d", on("buildings") && on("3d"));
   const base = document.querySelector('#layers [name="base"]:checked').value;
   vis("osm", base !== "none");
@@ -603,13 +607,15 @@ async function openGoogleMaps(cad) {
 }
 
 function zonesAt(point) {
-  const ids = ["z-natura-f", "z-national-f"].filter((l) => map.getLayer(l));
+  const ids = ["z-natura-f", "z-national-f", "z-floods-f"].filter((l) => map.getLayer(l));
   if (!ids.length) return [];
   const seen = new Set();
   return map.queryRenderedFeatures(point, { layers: ids }).map((f) => ({ layer: f.sourceLayer, ...f.properties }))
     .filter((z) => { const k = z.code || z.name; if (seen.has(k)) return false; seen.add(k); return true; });
 }
-const zonesHtml = (zones) => (zones?.length ? `<h4>Защитени зони</h4>` + zones.map((z) => z.layer === "natura"
+const zonesHtml = (zones) => (zones?.length ? `<h4>Защитени зони и рискове</h4>` + zones.map((z) => z.layer === "floods"
+  ? `<p>Район със значителен потенциален риск от наводнения${z.code ? " (" + esc(z.code) + ")" : ""}</p>`
+  : z.layer === "natura"
   ? `<p>Натура 2000 (${esc(z.kind)}): <a href="https://natura2000.eea.europa.eu/Natura2000/SDF.aspx?site=${encodeURIComponent(z.code)}" target="_blank" rel="noopener">${esc(z.code)}</a> ${esc(z.name)}</p>`
   : `<p>${esc(z.cat)}: ${esc(z.name)}${z.year ? ", от " + esc(z.year) : ""}</p>`).join("") +
   `<p style="color:#6b6a64;font-size:12px">Източник: Европейска агенция по околна среда. Ориентировъчно — границите са опростени.</p>` : "");
