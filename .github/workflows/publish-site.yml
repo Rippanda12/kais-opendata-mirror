@@ -1,0 +1,39 @@
+name: publish-site
+
+# Manual: deploy a site built locally (all oblasts fetched so far) to GitHub Pages. The site is the
+# asset site.tar of the release "site-current" (tools/publish-site.sh uploads it), because the
+# national tiles are too big to build on a runner every time.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download site-current --repo "$GITHUB_REPOSITORY" --pattern site.tar
+          tar -xf site.tar
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
