@@ -253,7 +253,8 @@ const layers = [
   { id: "osm", type: "raster", source: "osm", paint: { "raster-saturation": -1, "raster-opacity": 0.28, "raster-contrast": -0.2 } },
 ];
 if (meta.parcels) {
-  sources.p = { type: "vector", url: `pmtiles://${dataUrl("parcels.pmtiles")}` };
+  // Parcel tiles may live on another host (Cloudflare R2), named by meta.parcels_url; otherwise next to the page.
+  sources.p = { type: "vector", url: `pmtiles://${meta.parcels_url || dataUrl("parcels.pmtiles")}` };
   layers.push(
     { id: "p-fill", type: "fill", source: "p", "source-layer": "parcels",
       // purpose codes: 1 urban, 2 transport, 3 agricultural, 4 forest, 5 water, 6 protected, 7 disturbed

@@ -7,6 +7,7 @@ and one parcels.pmtiles, so the map works across the whole country.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -69,5 +70,7 @@ def build(out: Path, site: Path) -> dict:
     dates = [d for d in dates if d]  # an oblast without units has no export date
     meta = {"source_date": max(dates) if dates else None, "oblasts": oblasts,
             "map": has_map, "parcels": has_parcels, "protected": protected.exists(), "ekatte": by_ekatte}
+    if has_parcels and os.environ.get("PARCELS_URL"):  # parcel tiles served from elsewhere (too big for Pages)
+        meta["parcels_url"] = os.environ["PARCELS_URL"]
     (data / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, separators=(",", ":")))
     return {k: v for k, v in meta.items() if k != "ekatte"} | {"settlements": len(by_ekatte)}
